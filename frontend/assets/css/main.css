@@ -243,6 +243,20 @@ textarea:focus-visible {
   line-height: 1.05;
 }
 
+.heading-submit-plus {
+  margin: 28px auto 0;
+}
+
+.exhibition-index .index-emblem {
+  width: 84px;
+  height: 84px;
+}
+
+.exhibition-index .index-emblem img {
+  width: 76px;
+  height: 76px;
+}
+
 .exhibition-list {
   width: min(840px, 100%);
   margin: 0 auto;
@@ -317,26 +331,6 @@ textarea:focus-visible {
   margin: 0;
   border-bottom: 1px solid var(--line);
   text-align: center;
-}
-
-.index-submit-link {
-  width: max-content;
-  margin: 52px auto 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 2px;
-  border-bottom: 1px solid var(--line-strong);
-  color: var(--ink-soft);
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-  transition: border-color var(--motion-quick), color var(--motion-quick);
-}
-
-.index-submit-link:hover {
-  border-color: var(--ink);
-  color: var(--ink);
 }
 
 .discovery {
@@ -434,6 +428,22 @@ textarea:focus-visible {
   overflow-y: auto;
   border-right: 1px solid var(--line);
   background: var(--paper);
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink) transparent;
+}
+
+.post-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.post-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.post-list::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 0;
+  background: var(--ink);
 }
 
 .post-list-item {
@@ -529,42 +539,45 @@ textarea:focus-visible {
 }
 
 .pov-marker {
-  width: 116px;
-  min-height: 48px;
+  width: 150px;
+  min-height: 108px;
+  display: grid;
+  justify-items: center;
+  align-content: end;
+  transform: rotate(var(--tilt));
+  transform-origin: 50% 100%;
+  transition: transform var(--motion-quick), filter var(--motion-quick);
+}
+
+.pov-marker-card {
+  width: 150px;
+  min-height: 46px;
   display: grid;
   place-items: center;
-  padding: 10px;
+  padding: 9px 12px;
   overflow: hidden;
-  border: 1px solid rgba(17, 17, 17, 0.7);
+  border: 1px solid rgba(17, 17, 17, 0.72);
   background: var(--post-it);
-  box-shadow: 0 8px 20px rgba(44, 39, 25, 0.18);
+  box-shadow: 0 7px 18px rgba(44, 39, 25, 0.18);
   color: var(--ink);
   font-size: 12px;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1.25;
   text-align: center;
-  text-overflow: ellipsis;
-  transform: rotate(var(--tilt));
-  transition: transform var(--motion-quick), box-shadow var(--motion-quick);
 }
 
-.pov-marker::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: -8px;
-  width: 14px;
-  height: 14px;
-  border-right: 1px solid rgba(17, 17, 17, 0.7);
-  border-bottom: 1px solid rgba(17, 17, 17, 0.7);
-  background: var(--post-it);
-  transform: translateX(-50%) rotate(45deg);
+.pov-marker-symbol {
+  width: 29px;
+  height: 38px;
+  display: block;
+  margin-top: -1px;
+  filter: drop-shadow(0 5px 6px rgba(17, 17, 17, 0.18));
 }
 
 .pov-marker.is-selected {
   z-index: 2;
-  transform: rotate(0deg) translateY(-4px);
-  box-shadow: 0 12px 28px rgba(44, 39, 25, 0.28);
+  transform: rotate(0deg) translateY(-5px) scale(1.04);
+  filter: drop-shadow(0 9px 12px rgba(17, 17, 17, 0.18));
 }
 
 .detail-backdrop {

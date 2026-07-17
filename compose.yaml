@@ -29,6 +29,9 @@ services:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost}
       APP_BASE_PATH: ${APP_BASE_PATH:-/}
       UPLOAD_DIR: /data/uploads
+      SEOUL_OPEN_DATA_URL: ${SEOUL_OPEN_DATA_URL:-http://openapi.seoul.go.kr:8088}
+      SEOUL_OPEN_DATA_KEY: ${SEOUL_OPEN_DATA_KEY:-sample}
+      SEOUL_OPEN_DATA_LIMIT: ${SEOUL_OPEN_DATA_LIMIT:-5}
     volumes:
       - uploads:/data/uploads
     depends_on:

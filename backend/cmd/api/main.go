@@ -28,6 +28,7 @@ func main() {
 		log.Fatalf("start api: %v", err)
 	}
 	defer server.Close()
+	server.StartPublicDataSync(ctx)
 
 	httpServer := &http.Server{
 		Addr:              ":" + config.Port,

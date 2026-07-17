@@ -93,7 +93,7 @@ onMounted(loadPosts)
           v-model="query"
           name="query"
           autocomplete="off"
-          placeholder="어떤 장면을 보고 싶나요?"
+          placeholder="당신이 원하는 관람은?"
           aria-label="공연과 전시 검색"
         >
         <button type="submit" class="search-submit" :disabled="loading" aria-label="검색">
@@ -167,15 +167,15 @@ onMounted(loadPosts)
             <Search :size="16" aria-hidden="true" />
             <input v-model="query" aria-label="전시 목록 검색" placeholder="전시 검색">
           </form>
-          <NuxtLink to="/submit" class="submit-plus" aria-label="전시 정보 제보하기">
-            <Plus :size="21" />
-          </NuxtLink>
         </div>
       </header>
 
       <div class="index-heading">
         <p class="eyebrow">EXHIBITIONS</p>
         <h2 id="exhibition-index-title">전시 정보</h2>
+        <NuxtLink to="/submit" class="submit-plus heading-submit-plus" aria-label="전시 정보 제보하기">
+          <Plus :size="24" />
+        </NuxtLink>
         <p v-if="interpretation" class="interpretation">{{ interpretation }}</p>
       </div>
 
@@ -199,10 +199,6 @@ onMounted(loadPosts)
         <p v-if="loading" class="empty-copy"><LoaderCircle :size="18" class="spin" /> 전시를 불러오고 있습니다.</p>
         <p v-else-if="posts.length === 0" class="empty-copy">조건에 맞는 전시가 아직 없습니다.</p>
       </div>
-
-      <NuxtLink to="/submit" class="index-submit-link">
-        <Plus :size="18" /> 알고 있는 전시 제보하기
-      </NuxtLink>
     </section>
 
     <Transition name="fade">

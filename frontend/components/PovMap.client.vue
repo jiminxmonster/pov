@@ -2,6 +2,9 @@
 import L, { type Map as LeafletMap, type Marker } from 'leaflet'
 import type { ExhibitionPost } from '~/types/post'
 
+const config = useRuntimeConfig()
+const markerUrl = `${config.app.baseURL}mmarrk.svg`
+
 const props = defineProps<{
   posts: ExhibitionPost[]
   selectedId?: string
@@ -26,9 +29,9 @@ function renderMarkers() {
     const selected = post.id === props.selectedId
     const icon = L.divIcon({
       className: 'pov-marker-shell',
-      html: `<span class="pov-marker ${selected ? 'is-selected' : ''}" style="--tilt:${index % 2 === 0 ? '-2deg' : '2deg'}">${escapeHtml(post.title)}</span>`,
-      iconSize: [116, 54],
-      iconAnchor: [58, 54],
+      html: `<span class="pov-marker ${selected ? 'is-selected' : ''}" style="--tilt:${index % 2 === 0 ? '-1.5deg' : '1.5deg'}"><span class="pov-marker-card">${escapeHtml(post.title)}</span><img class="pov-marker-symbol" src="${markerUrl}" alt=""></span>`,
+      iconSize: [150, 112],
+      iconAnchor: [75, 108],
     })
     const marker = L.marker([post.latitude, post.longitude], { icon })
       .addTo(activeMap)

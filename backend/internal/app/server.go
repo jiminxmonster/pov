@@ -32,14 +32,17 @@ import (
 const sessionCookieName = "pov_admin"
 
 type Config struct {
-	Port          string
-	DatabaseURL   string
-	AdminUsername string
-	AdminPassword string
-	SessionSecret string
-	PublicOrigin  string
-	BasePath      string
-	UploadDir     string
+	Port               string
+	DatabaseURL        string
+	AdminUsername      string
+	AdminPassword      string
+	SessionSecret      string
+	PublicOrigin       string
+	BasePath           string
+	UploadDir          string
+	SeoulOpenDataURL   string
+	SeoulOpenDataKey   string
+	SeoulOpenDataLimit int
 }
 
 type Server struct {
@@ -73,14 +76,17 @@ type searchResponse struct {
 
 func ConfigFromEnv() Config {
 	return Config{
-		Port:          envOr("PORT", "8080"),
-		DatabaseURL:   envOr("DATABASE_URL", "postgres://pov:pov-local-password@localhost:5432/pov?sslmode=disable"),
-		AdminUsername: envOr("ADMIN_USERNAME", "admin"),
-		AdminPassword: envOr("ADMIN_PASSWORD", "admin"),
-		SessionSecret: envOr("SESSION_SECRET", "local-development-secret-change-before-deploy"),
-		PublicOrigin:  envOr("PUBLIC_ORIGIN", "http://localhost:3000"),
-		BasePath:      normalizeBasePath(envOr("APP_BASE_PATH", "/")),
-		UploadDir:     envOr("UPLOAD_DIR", "./uploads"),
+		Port:               envOr("PORT", "8080"),
+		DatabaseURL:        envOr("DATABASE_URL", "postgres://pov:pov-local-password@localhost:5432/pov?sslmode=disable"),
+		AdminUsername:      envOr("ADMIN_USERNAME", "admin"),
+		AdminPassword:      envOr("ADMIN_PASSWORD", "admin"),
+		SessionSecret:      envOr("SESSION_SECRET", "local-development-secret-change-before-deploy"),
+		PublicOrigin:       envOr("PUBLIC_ORIGIN", "http://localhost:3000"),
+		BasePath:           normalizeBasePath(envOr("APP_BASE_PATH", "/")),
+		UploadDir:          envOr("UPLOAD_DIR", "./uploads"),
+		SeoulOpenDataURL:   envOr("SEOUL_OPEN_DATA_URL", "http://openapi.seoul.go.kr:8088"),
+		SeoulOpenDataKey:   envOr("SEOUL_OPEN_DATA_KEY", "sample"),
+		SeoulOpenDataLimit: envIntOr("SEOUL_OPEN_DATA_LIMIT", 5),
 	}
 }
 
@@ -892,4 +898,12 @@ func envOr(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envIntOr(name string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }

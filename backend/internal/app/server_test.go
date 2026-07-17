@@ -87,3 +87,46 @@ func TestBasePathHelpers(t *testing.T) {
 		t.Fatalf("unexpected root path: %q", got)
 	}
 }
+
+func TestConvertSeoulEvent(t *testing.T) {
+	now := time.Date(2026, time.July, 18, 14, 0, 0, 0, time.FixedZone("KST", 9*60*60))
+	event := seoulCulturalEvent{
+		CodeName:  "전시/미술",
+		GuName:    "중구",
+		Title:     "공공데이터 전시",
+		Date:      "2026-07-18~2026-08-31",
+		Place:     "서울시립미술관",
+		Organizer: "서울시립미술관",
+		Audience:  "누구나",
+		Fee:       "무료",
+		Inquiry:   "02-0000-0000",
+		StartDate: "2026-07-18 00:00:00.0",
+		EndDate:   "2026-08-31 00:00:00.0",
+		Longitude: "126.9737",
+		Latitude:  "37.5640",
+		Homepage:  "https://culture.seoul.go.kr/culture/culture/cultureEvent/view.do?cultcode=158601",
+		ImageURL:  "https://example.com/poster.jpg",
+	}
+
+	exhibition, ok := convertSeoulEvent(event, now)
+	if !ok {
+		t.Fatal("expected current exhibition to be converted")
+	}
+	if exhibition.Slug != "seoul-culture-158601" {
+		t.Fatalf("unexpected slug: %q", exhibition.Slug)
+	}
+	if exhibition.Address != "서울 중구 · 서울시립미술관" {
+		t.Fatalf("unexpected address: %q", exhibition.Address)
+	}
+	if exhibition.Latitude != 37.5640 || exhibition.Longitude != 126.9737 {
+		t.Fatalf("unexpected coordinates: %f, %f", exhibition.Latitude, exhibition.Longitude)
+	}
+	if !strings.Contains(exhibition.BodyMarkdown, "공공데이터 출처: "+seoulOpenDataSource) {
+		t.Fatalf("source attribution is missing: %q", exhibition.BodyMarkdown)
+	}
+
+	event.EndDate = "2026-07-17 00:00:00.0"
+	if _, ok := convertSeoulEvent(event, now); ok {
+		t.Fatal("ended exhibition must be ignored")
+	}
+}
