@@ -1,0 +1,13 @@
+.DS_Store
+.gstack/
+.env
+.nuxt/
+.output/
+node_modules/
+dist/
+coverage/
+uploads/*
+!uploads/.gitkeep
+*.log
+
+.gstack/
