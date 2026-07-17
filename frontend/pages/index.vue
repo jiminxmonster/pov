@@ -11,14 +11,16 @@ const posts = ref<ExhibitionPost[]>([])
 const selected = ref<ExhibitionPost | null>(null)
 const loading = ref(false)
 const interpretation = ref('')
+const mapSection = ref<HTMLElement | null>(null)
 const listSection = ref<HTMLElement | null>(null)
+const currentBbox = ref('')
 const tapHistory = ref<number[]>([])
 const selectedFields = computed(() => selected.value ? parseExhibitionFields(selected.value.body_markdown) : [])
 
 useSeoMeta({
   title: '전지적관람시점',
   ogTitle: '전지적관람시점',
-  description: '지금 보고 싶은 공연과 전시를 발견하세요.',
+  description: '지도와 정돈된 목록에서 지금 보고 싶은 공연과 전시를 발견하세요.',
 })
 
 async function loadPosts() {
@@ -32,11 +34,12 @@ async function loadPosts() {
   }
 }
 
-async function search() {
+async function search(target: 'map' | 'list' = 'map') {
+  const targetSection = target === 'map' ? mapSection : listSection
   const text = query.value.trim()
   if (!text) {
     await loadPosts()
-    listSection.value?.scrollIntoView({ behavior: 'smooth' })
+    targetSection.value?.scrollIntoView({ behavior: 'smooth' })
     return
   }
 
@@ -44,11 +47,11 @@ async function search() {
   try {
     const result = await $fetch<SearchResponse>(`${config.public.apiBase}/search/ai`, {
       method: 'POST',
-      body: { query: text },
+      body: target === 'map' ? { query: text, bbox: currentBbox.value } : { query: text },
     })
     posts.value = result.items
     interpretation.value = result.interpretation || ''
-    listSection.value?.scrollIntoView({ behavior: 'smooth' })
+    targetSection.value?.scrollIntoView({ behavior: 'smooth' })
   } finally {
     loading.value = false
   }
@@ -67,6 +70,10 @@ function postField(post: ExhibitionPost, label: string) {
   return post.metadata[label] || parseExhibitionFields(post.body_markdown).find(field => field.label === label)?.value || ''
 }
 
+function selectPost(post: ExhibitionPost) {
+  selected.value = post
+}
+
 onMounted(loadPosts)
 </script>
 
@@ -79,7 +86,7 @@ onMounted(loadPosts)
 
       <h1 id="brand-title" class="brand-title">전지적관람시점</h1>
 
-      <form class="search-line" role="search" @submit.prevent="search">
+      <form class="search-line" role="search" @submit.prevent="search('map')">
         <label for="pov-search" class="search-prefix">pov:</label>
         <input
           id="pov-search"
@@ -95,8 +102,57 @@ onMounted(loadPosts)
         </button>
       </form>
 
-      <button class="down-cue" type="button" aria-label="전시 목록으로 이동" @click="listSection?.scrollIntoView({ behavior: 'smooth' })">
+      <button class="down-cue" type="button" aria-label="지도로 이동" @click="mapSection?.scrollIntoView({ behavior: 'smooth' })">
         <ArrowDown :size="24" />
+      </button>
+    </section>
+
+    <section ref="mapSection" class="discovery" aria-label="지도 위의 장면들">
+      <header class="map-toolbar">
+        <button class="index-emblem" type="button" aria-label="POV" @click="handleLogoTap">
+          <img :src="logoUrl" alt="POV 엠블럼">
+        </button>
+
+        <form class="compact-search" role="search" @submit.prevent="search('map')">
+          <Search :size="16" aria-hidden="true" />
+          <input v-model="query" aria-label="지도 결과 검색" placeholder="전시 검색">
+        </form>
+      </header>
+
+      <p v-if="interpretation" class="map-interpretation">{{ interpretation }}</p>
+
+      <div class="discovery-layout">
+        <aside class="post-list" aria-label="지도에 표시된 공연·전시">
+          <button
+            v-for="(post, index) in posts"
+            :key="post.id"
+            type="button"
+            class="post-list-item"
+            :class="{ 'is-active': selected?.id === post.id }"
+            @click="selectPost(post)"
+          >
+            <span class="post-list-index">{{ String(index + 1).padStart(2, '0') }}</span>
+            <span class="post-list-copy">
+              <strong>{{ post.title }}</strong>
+              <small><MapPin :size="13" /> {{ post.address || '장소 확인 중' }}</small>
+            </span>
+          </button>
+          <p v-if="loading" class="empty-copy"><LoaderCircle :size="18" class="spin" /> 전시를 불러오고 있습니다.</p>
+          <p v-else-if="posts.length === 0" class="empty-copy">조건에 맞는 장면이 아직 없습니다.</p>
+        </aside>
+
+        <div class="map-frame">
+          <PovMap
+            :posts="posts"
+            :selected-id="selected?.id"
+            @select="selectPost"
+            @bounds-changed="currentBbox = $event"
+          />
+        </div>
+      </div>
+
+      <button class="section-down-cue" type="button" aria-label="전시 목록으로 이동" @click="listSection?.scrollIntoView({ behavior: 'smooth' })">
+        <ArrowDown :size="22" />
       </button>
     </section>
 
@@ -107,7 +163,7 @@ onMounted(loadPosts)
         </button>
 
         <div class="index-actions">
-          <form class="compact-search" role="search" @submit.prevent="search">
+          <form class="compact-search" role="search" @submit.prevent="search('list')">
             <Search :size="16" aria-hidden="true" />
             <input v-model="query" aria-label="전시 목록 검색" placeholder="전시 검색">
           </form>
