@@ -146,6 +146,7 @@ func (s *Server) routes() http.Handler {
 		api.Get("/posts/{slug}", s.getPublishedPost)
 		api.Get("/map/posts", s.listPublishedPosts)
 		api.Post("/search/ai", s.aiSearch)
+		api.Post("/submissions", s.createSubmission)
 
 		api.Route("/admin", func(admin chi.Router) {
 			admin.Post("/auth/login", s.login)
@@ -262,6 +263,65 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, post)
+}
+
+func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 12<<20)
+	if err := r.ParseMultipartForm(12 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "제보 내용을 읽지 못했습니다")
+		return
+	}
+	if strings.TrimSpace(r.FormValue("website")) != "" {
+		writeError(w, http.StatusBadRequest, "제보를 접수하지 못했습니다")
+		return
+	}
+
+	body := strings.TrimSpace(r.FormValue("body_markdown"))
+	if len([]rune(body)) < 20 {
+		writeError(w, http.StatusBadRequest, "전시 정보를 조금 더 입력해 주세요")
+		return
+	}
+
+	metadata, title, address, latitude, longitude := parseTemplate(body)
+	if title == "제목 확인 필요" || address == "" {
+		writeError(w, http.StatusBadRequest, "전시명과 장소를 입력해 주세요")
+		return
+	}
+	metadataBytes, _ := json.Marshal(metadata)
+
+	imageURL := ""
+	file, header, err := r.FormFile("image")
+	if err == nil {
+		defer file.Close()
+		name, saveErr := s.saveImageUpload(file, header)
+		if saveErr != nil {
+			writeError(w, http.StatusBadRequest, saveErr.Error())
+			return
+		}
+		imageURL = prefixedPath(s.config.BasePath, "/uploads/"+name)
+	} else if !errors.Is(err, http.ErrMissingFile) {
+		writeError(w, http.StatusBadRequest, "대표 이미지를 읽지 못했습니다")
+		return
+	}
+
+	row := s.db.QueryRow(r.Context(), `
+		INSERT INTO posts (slug, title, body_markdown, metadata, address, latitude, longitude, image_url, status, source_type)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'review', 'community')
+		RETURNING id, slug, title, body_markdown, metadata, address, latitude, longitude, image_url, status, source_type, published_at, created_at, updated_at
+	`, newSlug(), title, body, metadataBytes, address, latitude, longitude, imageURL)
+
+	post, err := scanPost(row)
+	if err != nil {
+		if imageURL != "" {
+			_ = os.Remove(filepath.Join(s.config.UploadDir, filepath.Base(imageURL)))
+		}
+		writeError(w, http.StatusInternalServerError, "제보를 저장하지 못했습니다")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"id":      post.ID,
+		"message": "전시 정보가 접수되었습니다. 운영자 확인 후 공개됩니다.",
+	})
 }
 
 func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
@@ -442,16 +502,9 @@ func (s *Server) uploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	extension := strings.ToLower(filepath.Ext(header.Filename))
-	allowed := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true}
-	if !allowed[extension] {
-		writeError(w, http.StatusBadRequest, "JPG, PNG, WebP 또는 GIF 이미지만 업로드할 수 있습니다")
-		return
-	}
-
-	name, err := s.saveUpload(file, extension)
+	name, err := s.saveImageUpload(file, header)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "이미지를 저장하지 못했습니다")
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"url": prefixedPath(s.config.BasePath, "/uploads/"+name)})
@@ -515,6 +568,38 @@ func (s *Server) saveUpload(file multipart.File, extension string) (string, erro
 	defer target.Close()
 	_, err = io.Copy(target, file)
 	return name, err
+}
+
+func (s *Server) saveImageUpload(file multipart.File, header *multipart.FileHeader) (string, error) {
+	extension := strings.ToLower(filepath.Ext(header.Filename))
+	allowedExtensions := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true}
+	if !allowedExtensions[extension] {
+		return "", errors.New("JPG, PNG, WebP 또는 GIF 이미지만 업로드할 수 있습니다")
+	}
+
+	signature := make([]byte, 512)
+	n, err := file.Read(signature)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", errors.New("이미지를 확인하지 못했습니다")
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", errors.New("이미지를 확인하지 못했습니다")
+	}
+	contentType := http.DetectContentType(signature[:n])
+	allowedContentTypes := map[string]bool{
+		"image/jpeg": true,
+		"image/png":  true,
+		"image/webp": true,
+		"image/gif":  true,
+	}
+	if !allowedContentTypes[contentType] {
+		return "", errors.New("올바른 이미지 파일을 선택해 주세요")
+	}
+	name, err := s.saveUpload(file, extension)
+	if err != nil {
+		return "", errors.New("이미지를 저장하지 못했습니다")
+	}
+	return name, nil
 }
 
 func (s *Server) saveUploadBytes(data []byte, extension string) (string, error) {

@@ -1,41 +1,11 @@
 <script setup lang="ts">
 import { ArrowLeft, Check, FileUp, ImagePlus, LoaderCircle, LogOut, Send } from '@lucide/vue'
 import type { ExhibitionPost, SearchResponse } from '~/types/post'
-
-const template = `전시명:
-
-작가(작가소개):
-
-관람료:
-
-전시기간:
-
-장소:
-
-도슨트(전시장 가이드) 유무:
-
-찾아가는 방법:
-
-주차정보:
-
-전시내용:
-
-굿즈샵정보:
-
-주변에 함께 볼 만한 전시:
-
-주변에 볼거리:
-
-맛집:
-
-감상평:
-
-페르소나 정보입력:
-`
+import { exhibitionTemplate } from '~/utils/exhibition'
 
 const config = useRuntimeConfig()
 const router = useRouter()
-const body = ref(template)
+const body = ref(exhibitionTemplate)
 const imageUrl = ref('')
 const posts = ref<ExhibitionPost[]>([])
 const saving = ref(false)
@@ -108,9 +78,24 @@ async function save(publish: boolean) {
       credentials: 'include',
       body: { body_markdown: body.value, image_url: imageUrl.value, publish },
     })
-    notice.value = publish ? '지도에 게시했습니다.' : '초안으로 저장했습니다.'
-    body.value = template
+    notice.value = publish ? '전시 목록에 게시했습니다.' : '초안으로 저장했습니다.'
+    body.value = exhibitionTemplate
     imageUrl.value = ''
+    await loadAdminPosts()
+  } finally {
+    saving.value = false
+  }
+}
+
+async function publishPost(post: ExhibitionPost) {
+  saving.value = true
+  notice.value = ''
+  try {
+    await $fetch(`${config.public.apiBase}/admin/posts/${post.id}/publish`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    notice.value = `‘${post.title}’을 공개했습니다.`
     await loadAdminPosts()
   } finally {
     saving.value = false
@@ -141,7 +126,7 @@ onMounted(loadAdminPosts)
         <div>
           <p class="eyebrow">ONE PAGE EDITOR</p>
           <h1 id="editor-title">하나의 글로 기록하기</h1>
-          <p>양식 사이에 내용을 채우면 검색 인덱스와 지도 위치를 자동으로 준비합니다.</p>
+          <p>양식 사이에 내용을 채우면 검색 인덱스와 장소 정보를 자동으로 준비합니다.</p>
         </div>
         <div class="upload-actions">
           <label class="tool-button">
@@ -176,15 +161,31 @@ onMounted(loadAdminPosts)
 
     <section class="admin-list" aria-labelledby="post-list-title">
       <p class="eyebrow">RECENT POSTS</p>
-      <h2 id="post-list-title">최근 기록</h2>
+      <h2 id="post-list-title">최근 기록과 제보</h2>
       <div class="admin-table">
-        <div v-for="post in posts" :key="post.id" class="admin-row">
-          <div>
-            <strong>{{ post.title }}</strong>
-            <small>{{ post.address || '장소 확인 필요' }}</small>
+        <details v-for="post in posts" :key="post.id" class="admin-entry">
+          <summary class="admin-row">
+            <div>
+              <strong>{{ post.title }}</strong>
+              <small>{{ post.address || '장소 확인 필요' }}</small>
+            </div>
+            <div class="admin-row-chips">
+              <span v-if="post.source_type === 'community'" class="status-chip">사용자 제보</span>
+              <span class="status-chip">{{ post.status }}</span>
+            </div>
+          </summary>
+          <div class="admin-review-body">
+            <img v-if="post.image_url" :src="post.image_url" :alt="`${post.title} 대표 이미지`">
+            <pre>{{ post.body_markdown }}</pre>
+            <button
+              v-if="post.status !== 'published'"
+              class="pill-button"
+              type="button"
+              :disabled="saving"
+              @click="publishPost(post)"
+            ><Send :size="16" /> 확인 후 공개</button>
           </div>
-          <span class="status-chip">{{ post.status }}</span>
-        </div>
+        </details>
       </div>
     </section>
   </main>
