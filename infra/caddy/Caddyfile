@@ -1,8 +1,21 @@
 {$SITE_ADDRESS} {
 	encode zstd gzip
 
-	@api path /api/* /health /uploads/*
+	@pov_root path /pov
+	redir @pov_root /pov/ 308
+
+	@api path /pov/api/* /pov/health /pov/uploads/*
 	handle @api {
+		uri strip_prefix /pov
+		reverse_proxy api:8080
+	}
+
+	handle /pov/* {
+		reverse_proxy frontend:3000
+	}
+
+	@root_api path /api/* /health /uploads/*
+	handle @root_api {
 		reverse_proxy api:8080
 	}
 

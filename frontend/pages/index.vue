@@ -4,6 +4,7 @@ import type { ExhibitionPost, SearchResponse } from '~/types/post'
 
 const config = useRuntimeConfig()
 const router = useRouter()
+const logoUrl = `${config.app.baseURL}logo.png`
 const query = ref('')
 const posts = ref<ExhibitionPost[]>([])
 const selected = ref<ExhibitionPost | null>(null)
@@ -71,7 +72,7 @@ onMounted(loadPosts)
   <main>
     <section class="landing-room" aria-labelledby="brand-title">
       <button class="brand-mark-button" type="button" aria-label="POV" @click="handleLogoTap">
-        <img class="brand-mark" src="/logo.png" alt="POV 로고">
+        <img class="brand-mark" :src="logoUrl" alt="POV 로고">
       </button>
 
       <h1 id="brand-title" class="brand-title">전지적관람시점</h1>

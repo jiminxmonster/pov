@@ -8,6 +8,7 @@ export default defineNuxtConfig({
     },
   },
   app: {
+    baseURL: process.env.NUXT_APP_BASE_URL || '/',
     head: {
       htmlAttrs: { lang: 'ko' },
       title: '전지적관람시점',
@@ -19,4 +20,3 @@ export default defineNuxtConfig({
     },
   },
 })
-

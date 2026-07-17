@@ -77,4 +77,17 @@ sudo APP_DIR=/opt/pov sh /opt/pov/infra/deploy.sh
 - `PUBLIC_ORIGIN`
 - `SITE_ADDRESS`
 
-IP로 먼저 공개할 때는 `SITE_ADDRESS=:80`, `PUBLIC_ORIGIN=http://서버IP`를 사용한다. 도메인 연결 후 `SITE_ADDRESS=pov.example.com`, `PUBLIC_ORIGIN=https://pov.example.com`으로 바꾸면 Caddy가 HTTPS 인증서를 자동 관리한다. 도메인 사용 시 Vultr 방화벽과 서버 방화벽에서 TCP 80·443 및 UDP 443을 허용한다.
+`www.d2blue.com/pov` 운영값은 `.env.vultr.example`에 준비되어 있다. Compose의 Caddy는 `127.0.0.1:18080`에서 앱을 열고, 도메인의 기존 프록시가 `/pov` 경로를 이 주소로 전달하는 구성이다. 이때 요청 URI의 `/pov` 접두사는 유지해야 한다.
+
+Nginx를 쓰는 기존 서버라면 HTTPS 서버 블록에 다음 규칙을 추가한다.
+
+```nginx
+location = /pov { return 308 /pov/; }
+location /pov/ {
+    proxy_pass http://127.0.0.1:18080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```

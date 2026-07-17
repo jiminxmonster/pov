@@ -75,3 +75,15 @@ func TestSessionSignature(t *testing.T) {
 		t.Fatal("tampered session must not validate")
 	}
 }
+
+func TestBasePathHelpers(t *testing.T) {
+	if got := normalizeBasePath("pov/"); got != "/pov" {
+		t.Fatalf("unexpected normalized base path: %q", got)
+	}
+	if got := prefixedPath("/pov", "/uploads/poster.png"); got != "/pov/uploads/poster.png" {
+		t.Fatalf("unexpected prefixed path: %q", got)
+	}
+	if got := prefixedPath("/", "/uploads/poster.png"); got != "/uploads/poster.png" {
+		t.Fatalf("unexpected root path: %q", got)
+	}
+}

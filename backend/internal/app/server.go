@@ -38,6 +38,7 @@ type Config struct {
 	AdminPassword string
 	SessionSecret string
 	PublicOrigin  string
+	BasePath      string
 	UploadDir     string
 }
 
@@ -78,11 +79,13 @@ func ConfigFromEnv() Config {
 		AdminPassword: envOr("ADMIN_PASSWORD", "admin"),
 		SessionSecret: envOr("SESSION_SECRET", "local-development-secret-change-before-deploy"),
 		PublicOrigin:  envOr("PUBLIC_ORIGIN", "http://localhost:3000"),
+		BasePath:      normalizeBasePath(envOr("APP_BASE_PATH", "/")),
 		UploadDir:     envOr("UPLOAD_DIR", "./uploads"),
 	}
 }
 
 func New(ctx context.Context, config Config) (*Server, error) {
+	config.BasePath = normalizeBasePath(config.BasePath)
 	if err := os.MkdirAll(config.UploadDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create upload directory: %w", err)
 	}
@@ -365,7 +368,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    s.createSession(input.Username, time.Now().Add(12*time.Hour)),
-		Path:     "/",
+		Path:     s.config.BasePath,
 		MaxAge:   int((12 * time.Hour).Seconds()),
 		HttpOnly: true,
 		Secure:   strings.HasPrefix(s.config.PublicOrigin, "https://"),
@@ -378,7 +381,7 @@ func (s *Server) logout(w http.ResponseWriter, _ *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
-		Path:     "/",
+		Path:     s.config.BasePath,
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   strings.HasPrefix(s.config.PublicOrigin, "https://"),
@@ -451,7 +454,23 @@ func (s *Server) uploadMedia(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "이미지를 저장하지 못했습니다")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"url": "/uploads/" + name})
+	writeJSON(w, http.StatusCreated, map[string]string{"url": prefixedPath(s.config.BasePath, "/uploads/"+name)})
+}
+
+func normalizeBasePath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "/" {
+		return "/"
+	}
+	return "/" + strings.Trim(value, "/")
+}
+
+func prefixedPath(basePath, path string) string {
+	basePath = normalizeBasePath(basePath)
+	if basePath == "/" {
+		return "/" + strings.TrimLeft(path, "/")
+	}
+	return basePath + "/" + strings.TrimLeft(path, "/")
 }
 
 func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {

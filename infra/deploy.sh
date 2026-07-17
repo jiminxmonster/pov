@@ -14,7 +14,7 @@ git checkout main
 git pull --ff-only origin main
 
 if [ ! -f .env ]; then
-  cp .env.example .env
+  cp .env.vultr.example .env
   echo "Created $APP_DIR/.env. Set secure production values and run this script again." >&2
   exit 1
 fi

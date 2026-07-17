@@ -3,6 +3,7 @@ import { ArrowRight, LoaderCircle } from '@lucide/vue'
 
 const config = useRuntimeConfig()
 const router = useRouter()
+const logoUrl = `${config.app.baseURL}logo.png`
 const username = ref('')
 const password = ref('')
 const loading = ref(false)
@@ -31,7 +32,7 @@ async function login() {
 <template>
   <main class="admin-login-room">
     <NuxtLink to="/" class="admin-brand" aria-label="첫 화면으로">
-      <img src="/logo.png" alt="" class="admin-brand-image">
+      <img :src="logoUrl" alt="" class="admin-brand-image">
       <span>전지적관람시점</span>
     </NuxtLink>
 

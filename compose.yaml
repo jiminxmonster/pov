@@ -27,6 +27,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       SESSION_SECRET: ${SESSION_SECRET:-local-development-secret-change-before-deploy}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost}
+      APP_BASE_PATH: ${APP_BASE_PATH:-/}
       UPLOAD_DIR: /data/uploads
     volumes:
       - uploads:/data/uploads
@@ -42,9 +43,12 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        NUXT_APP_BASE_URL: ${NUXT_APP_BASE_URL:-/}
     restart: unless-stopped
     environment:
-      NUXT_PUBLIC_API_BASE: /api/v1
+      NUXT_APP_BASE_URL: ${NUXT_APP_BASE_URL:-/}
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-/api/v1}
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: "3000"
     depends_on:
@@ -55,9 +59,9 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "${HTTP_BIND:-80}:80"
+      - "${HTTPS_BIND:-443}:443"
+      - "${HTTPS_BIND:-443}:443/udp"
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     volumes:
