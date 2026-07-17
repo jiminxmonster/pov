@@ -79,15 +79,8 @@ sudo APP_DIR=/opt/pov sh /opt/pov/infra/deploy.sh
 
 `www.d2blue.com/pov` 운영값은 `.env.vultr.example`에 준비되어 있다. Compose의 Caddy는 `127.0.0.1:18080`에서 앱을 열고, 도메인의 기존 프록시가 `/pov` 경로를 이 주소로 전달하는 구성이다. 이때 요청 URI의 `/pov` 접두사는 유지해야 한다.
 
-Nginx를 쓰는 기존 서버라면 HTTPS 서버 블록에 다음 규칙을 추가한다.
+Nginx를 쓰는 기존 서버라면 HTTPS 서버 블록에서 `infra/nginx/pov-location.conf`를 include 한다.
 
 ```nginx
-location = /pov { return 308 /pov/; }
-location /pov/ {
-    proxy_pass http://127.0.0.1:18080;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
+include /opt/pov/infra/nginx/pov-location.conf;
 ```
