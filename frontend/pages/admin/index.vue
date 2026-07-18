@@ -6,6 +6,8 @@ import { exhibitionTemplate } from '~/utils/exhibition'
 const config = useRuntimeConfig()
 const router = useRouter()
 const body = ref(exhibitionTemplate)
+const documentEditor = ref<HTMLTextAreaElement | null>(null)
+const insertionCursor = ref<number | null>(null)
 const imageUrl = ref('')
 const posts = ref<ExhibitionPost[]>([])
 const saving = ref(false)
@@ -191,6 +193,47 @@ async function uploadImage(event: Event) {
   }
 }
 
+function rememberEditorCursor() {
+  if (!documentEditor.value) return
+  insertionCursor.value = documentEditor.value.selectionStart
+}
+
+async function uploadInlineImage(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  uploading.value = true
+  notice.value = ''
+  try {
+    const form = new FormData()
+    form.append('file', file)
+    const result = await $fetch<{ url: string }>(`${config.public.apiBase}/admin/media`, {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
+    })
+
+    const cursor = Math.min(insertionCursor.value ?? body.value.length, body.value.length)
+    const before = body.value.slice(0, cursor)
+    const after = body.value.slice(cursor)
+    const leadingBreak = before && !before.endsWith('\n') ? '\n' : ''
+    const trailingBreak = after && !after.startsWith('\n') ? '\n' : ''
+    const insertion = `${leadingBreak}![전시 본문 이미지](${result.url})\n${trailingBreak}`
+    body.value = `${before}${insertion}${after}`
+    insertionCursor.value = before.length + insertion.length
+    notice.value = '선택한 위치에 본문 이미지를 넣었습니다.'
+
+    await nextTick()
+    documentEditor.value?.focus()
+    documentEditor.value?.setSelectionRange(insertionCursor.value, insertionCursor.value)
+  } catch (error) {
+    notice.value = apiErrorMessage(error, '본문 이미지를 올리지 못했습니다.')
+  } finally {
+    uploading.value = false
+    input.value = ''
+  }
+}
+
 async function importDocument(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -206,6 +249,7 @@ async function importDocument(event: Event) {
       body: form,
     })
     body.value = result.body_markdown
+    insertionCursor.value = null
     notice.value = result.message
   } finally {
     uploading.value = false
@@ -224,6 +268,7 @@ async function save(publish: boolean) {
     })
     notice.value = publish ? '전시 목록에 게시했습니다.' : '초안으로 저장했습니다.'
     body.value = exhibitionTemplate
+    insertionCursor.value = null
     imageUrl.value = ''
     await loadAdminPosts()
   } finally {
@@ -367,6 +412,10 @@ onMounted(() => {
             <ImagePlus :size="17" /> 대표 사진
             <input type="file" accept="image/*" @change="uploadImage">
           </label>
+          <label class="tool-button">
+            <ImagePlus :size="17" /> 본문 이미지
+            <input type="file" accept="image/*" @change="uploadInlineImage">
+          </label>
         </div>
       </div>
 
@@ -375,7 +424,16 @@ onMounted(() => {
         <span><Check :size="15" /> 대표 이미지</span>
       </div>
 
-      <textarea v-model="body" class="document-editor" aria-label="공연·전시 게시글 본문" spellcheck="true" />
+      <textarea
+        ref="documentEditor"
+        v-model="body"
+        class="document-editor"
+        aria-label="공연·전시 게시글 본문"
+        spellcheck="true"
+        @click="rememberEditorCursor"
+        @keyup="rememberEditorCursor"
+        @select="rememberEditorCursor"
+      />
 
       <div class="editor-footer">
         <p class="editor-notice">

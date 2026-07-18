@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowRight, LoaderCircle, MapPin, Plus, Search, X } from '@lucide/vue'
 import type { ExhibitionPost, SearchResponse } from '~/types/post'
-import { parseExhibitionFields } from '~/utils/exhibition'
+import { parseExhibitionContent, parseExhibitionFields } from '~/utils/exhibition'
 
 const config = useRuntimeConfig()
 const router = useRouter()
@@ -72,6 +72,10 @@ function handleLogoTap() {
 
 function postField(post: ExhibitionPost, label: string) {
   return post.metadata[label] || parseExhibitionFields(post.body_markdown).find(field => field.label === label)?.value || ''
+}
+
+function fieldContent(value: string) {
+  return parseExhibitionContent(value)
 }
 
 function selectPost(post: ExhibitionPost) {
@@ -224,7 +228,18 @@ onMounted(loadPosts)
           <dl class="detail-fields">
             <div v-for="field in selectedFields" :key="field.label" class="detail-field">
               <dt>{{ field.label }}</dt>
-              <dd>{{ field.value }}</dd>
+              <dd>
+                <template v-for="(segment, segmentIndex) in fieldContent(field.value)" :key="`${field.label}-${segmentIndex}`">
+                  <img
+                    v-if="segment.type === 'image'"
+                    :src="segment.url"
+                    :alt="segment.alt"
+                    class="detail-inline-image"
+                    loading="lazy"
+                  >
+                  <span v-else class="detail-inline-text">{{ segment.value }}</span>
+                </template>
+              </dd>
             </div>
           </dl>
         </article>

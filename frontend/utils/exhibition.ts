@@ -23,6 +23,10 @@ export interface ExhibitionField {
   value: string
 }
 
+export type ExhibitionContentSegment =
+  | { type: 'text', value: string }
+  | { type: 'image', url: string, alt: string }
+
 export function parseExhibitionFields(body: string): ExhibitionField[] {
   const values = new Map<string, string>()
   let currentLabel = ''
@@ -43,4 +47,42 @@ export function parseExhibitionFields(body: string): ExhibitionField[] {
   return exhibitionLabels
     .map(label => ({ label, value: values.get(label)?.trim() || '' }))
     .filter(field => field.value)
+}
+
+export function parseExhibitionContent(value: string): ExhibitionContentSegment[] {
+  const segments: ExhibitionContentSegment[] = []
+  const imagePattern = /!\[([^\]]*)\]\(([^)\s]+)\)/g
+  let cursor = 0
+
+  for (const match of value.matchAll(imagePattern)) {
+    const index = match.index ?? 0
+    const url = match[2]?.trim() || ''
+    if (!isSafeImageURL(url)) continue
+
+    pushTextSegment(segments, value.slice(cursor, index))
+    segments.push({
+      type: 'image',
+      url,
+      alt: match[1]?.trim() || '전시 본문 이미지',
+    })
+    cursor = index + match[0].length
+  }
+
+  pushTextSegment(segments, value.slice(cursor))
+  return segments.length ? segments : [{ type: 'text', value }]
+}
+
+function pushTextSegment(segments: ExhibitionContentSegment[], value: string) {
+  const normalized = value.replace(/^\s*\n/, '').replace(/\n\s*$/, '')
+  if (normalized.trim()) segments.push({ type: 'text', value: normalized })
+}
+
+function isSafeImageURL(value: string) {
+  if (value.startsWith('/') && !value.startsWith('//')) return true
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || url.protocol === 'http:'
+  } catch {
+    return false
+  }
 }
