@@ -1014,32 +1014,78 @@ textarea:focus-visible {
   clip: rect(0 0 0 0);
 }
 
-.image-preview {
-  position: relative;
-  width: min(420px, 100%);
-  margin-bottom: 20px;
+.editor-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+  align-items: start;
+  gap: 24px;
 }
 
-.image-preview img {
+.editor-live-preview {
+  position: sticky;
+  top: 24px;
+  min-height: 720px;
+  max-height: calc(100svh - 48px);
+  overflow-y: auto;
+  padding: clamp(28px, 4vw, 44px);
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  scrollbar-color: var(--ink) transparent;
+  scrollbar-width: thin;
+}
+
+.editor-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.editor-preview-header .eyebrow {
+  margin: 0;
+}
+
+.editor-preview-header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.editor-preview-cover {
   width: 100%;
-  max-height: 260px;
+  max-height: 280px;
   display: block;
+  margin-bottom: 28px;
   object-fit: cover;
   border: 1px solid var(--line);
 }
 
-.image-preview span {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 7px 10px;
-  border-radius: 999px;
-  background: rgba(255, 253, 249, 0.92);
+.editor-live-preview h2 {
+  margin: 0 0 30px;
+  color: var(--ink);
+  font-size: clamp(25px, 3vw, 34px);
+  line-height: 1.15;
+}
+
+.editor-preview-fields .detail-field {
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 18px 0;
+}
+
+.editor-preview-fields .detail-inline-image {
+  max-height: 400px;
+}
+
+.editor-preview-empty {
+  margin: 0;
+  color: var(--muted);
   font-size: 12px;
-  font-weight: 800;
+  line-height: 1.7;
 }
 
 .document-editor {
@@ -1293,6 +1339,16 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .editor-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-live-preview {
+    position: static;
+    min-height: 0;
+    max-height: none;
+  }
+
   .admin-editor-heading,
   .editor-footer {
     align-items: stretch;
@@ -1458,6 +1514,10 @@ textarea:focus-visible {
     min-height: 620px;
     padding: 24px 20px;
     font-size: 15px;
+  }
+
+  .editor-live-preview {
+    padding: 28px 22px;
   }
 }
 

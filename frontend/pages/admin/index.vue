@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ArrowLeft, Check, FileUp, ImagePlus, KeyRound, LoaderCircle, LogOut, RefreshCw, Save, Send } from '@lucide/vue'
+import { ArrowLeft, FileUp, ImagePlus, KeyRound, LoaderCircle, LogOut, RefreshCw, Save, Send } from '@lucide/vue'
 import type { ExhibitionPost, SearchResponse } from '~/types/post'
-import { exhibitionTemplate } from '~/utils/exhibition'
+import { exhibitionTemplate, parseExhibitionContent, parseExhibitionFields } from '~/utils/exhibition'
 
 const config = useRuntimeConfig()
 const router = useRouter()
@@ -12,6 +12,7 @@ const imageUrl = ref('')
 const posts = ref<ExhibitionPost[]>([])
 const saving = ref(false)
 const uploading = ref(false)
+const inlineImageUploading = ref(false)
 const notice = ref('')
 const publicDataKey = ref('')
 const publicDataLimit = ref(5)
@@ -27,6 +28,8 @@ const aiConfigured = ref(false)
 const aiSaving = ref(false)
 const aiTesting = ref(false)
 const aiNotice = ref('')
+const previewFields = computed(() => parseExhibitionFields(body.value))
+const previewTitle = computed(() => previewFields.value.find(field => field.label === '전시명')?.value || '전시명 미리보기')
 
 interface PublicDataSettingsResponse {
   configured: boolean
@@ -198,11 +201,16 @@ function rememberEditorCursor() {
   insertionCursor.value = documentEditor.value.selectionStart
 }
 
+function previewFieldContent(value: string) {
+  return parseExhibitionContent(value)
+}
+
 async function uploadInlineImage(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
   uploading.value = true
+  inlineImageUploading.value = true
   notice.value = ''
   try {
     const form = new FormData()
@@ -230,6 +238,7 @@ async function uploadInlineImage(event: Event) {
     notice.value = apiErrorMessage(error, '본문 이미지를 올리지 못했습니다.')
   } finally {
     uploading.value = false
+    inlineImageUploading.value = false
     input.value = ''
   }
 }
@@ -401,7 +410,7 @@ onMounted(() => {
         <div>
           <p class="eyebrow">ONE PAGE EDITOR</p>
           <h1 id="editor-title">하나의 글로 기록하기</h1>
-          <p>양식 사이에 내용을 채우면 검색 인덱스와 장소 정보를 자동으로 준비합니다.</p>
+          <p>쓰는 동안 게시 화면을 곁에서 바로 확인합니다.</p>
         </div>
         <div class="upload-actions">
           <label class="tool-button">
@@ -419,21 +428,44 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="imageUrl" class="image-preview">
-        <img :src="imageUrl" alt="업로드한 대표 이미지">
-        <span><Check :size="15" /> 대표 이미지</span>
-      </div>
+      <div class="editor-workspace">
+        <textarea
+          ref="documentEditor"
+          v-model="body"
+          class="document-editor"
+          aria-label="공연·전시 게시글 본문"
+          spellcheck="true"
+          @click="rememberEditorCursor"
+          @keyup="rememberEditorCursor"
+          @select="rememberEditorCursor"
+        />
 
-      <textarea
-        ref="documentEditor"
-        v-model="body"
-        class="document-editor"
-        aria-label="공연·전시 게시글 본문"
-        spellcheck="true"
-        @click="rememberEditorCursor"
-        @keyup="rememberEditorCursor"
-        @select="rememberEditorCursor"
-      />
+        <article class="editor-live-preview" aria-label="게시글 실시간 미리보기">
+          <header class="editor-preview-header">
+            <p class="eyebrow">LIVE PREVIEW</p>
+            <span v-if="inlineImageUploading"><LoaderCircle :size="14" class="spin" /> 이미지 올리는 중</span>
+          </header>
+          <img v-if="imageUrl" :src="imageUrl" alt="업로드한 대표 이미지" class="editor-preview-cover">
+          <h2>{{ previewTitle }}</h2>
+          <dl v-if="previewFields.length" class="detail-fields editor-preview-fields">
+            <div v-for="field in previewFields" :key="field.label" class="detail-field">
+              <dt>{{ field.label }}</dt>
+              <dd>
+                <template v-for="(segment, segmentIndex) in previewFieldContent(field.value)" :key="`${field.label}-${segmentIndex}`">
+                  <img
+                    v-if="segment.type === 'image'"
+                    :src="segment.url"
+                    :alt="segment.alt"
+                    class="detail-inline-image"
+                  >
+                  <span v-else class="detail-inline-text">{{ segment.value }}</span>
+                </template>
+              </dd>
+            </div>
+          </dl>
+          <p v-else class="editor-preview-empty">내용을 채우면 이곳에 실제 게시 모습이 나타납니다.</p>
+        </article>
+      </div>
 
       <div class="editor-footer">
         <p class="editor-notice">
