@@ -77,7 +77,8 @@ function initializeMap() {
   markerClusterGroup = L.markerClusterGroup({
     maxClusterRadius: 68,
     showCoverageOnHover: false,
-    spiderfyOnMaxZoom: false,
+    spiderfyOnMaxZoom: true,
+    spiderfyDistanceMultiplier: 2.4,
     zoomToBoundsOnClick: true,
     removeOutsideVisibleBounds: true,
     chunkedLoading: true,
