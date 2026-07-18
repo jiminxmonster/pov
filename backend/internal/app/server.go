@@ -16,11 +16,13 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -46,9 +48,16 @@ type Config struct {
 }
 
 type Server struct {
-	config Config
-	db     *pgxpool.Pool
-	router http.Handler
+	config      Config
+	db          *pgxpool.Pool
+	router      http.Handler
+	aiRateMu    sync.Mutex
+	aiRateLimit map[string]aiRequestWindow
+}
+
+type aiRequestWindow struct {
+	StartedAt time.Time
+	Count     int
 }
 
 type Post struct {
@@ -72,6 +81,7 @@ type searchResponse struct {
 	Items          []Post `json:"items"`
 	Interpretation string `json:"interpretation,omitempty"`
 	Total          int    `json:"total"`
+	AIPowered      bool   `json:"ai_powered,omitempty"`
 }
 
 func ConfigFromEnv() Config {
@@ -163,6 +173,9 @@ func (s *Server) routes() http.Handler {
 				private.Get("/settings/public-data", s.getPublicDataSettings)
 				private.Put("/settings/public-data", s.updatePublicDataSettings)
 				private.Post("/settings/public-data/sync", s.syncPublicDataNow)
+				private.Get("/settings/ai", s.getNVIDIAAISettings)
+				private.Put("/settings/ai", s.updateNVIDIAAISettings)
+				private.Post("/settings/ai/test", s.testNVIDIAAISettings)
 				private.Get("/posts", s.listAdminPosts)
 				private.Post("/posts", s.createPost)
 				private.Post("/posts/{id}/publish", s.publishPost)
@@ -215,6 +228,23 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Query = strings.TrimSpace(input.Query)
+	if input.Query != "" {
+		settings, configured, settingsErr := s.loadNVIDIAAISettings(r.Context())
+		if settingsErr == nil && configured && s.allowAIRequest(r) {
+			candidates, candidateErr := s.queryPosts(r.Context(), "", "published", input.BBox, 80)
+			if candidateErr == nil && len(candidates) > 0 {
+				curation, curationErr := curateWithNVIDIA(r.Context(), settings, input.Query, candidates)
+				if curationErr == nil {
+					posts := postsByRecommendedIDs(candidates, curation.RecommendedIDs)
+					writeJSON(w, http.StatusOK, searchResponse{
+						Items: posts, Total: len(posts), Interpretation: curation.Answer, AIPowered: true,
+					})
+					return
+				}
+				log.Printf("NVIDIA AI curation fallback: %v", curationErr)
+			}
+		}
+	}
 	posts, err := s.queryPosts(r.Context(), input.Query, "published", input.BBox, 100)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "검색 중 문제가 발생했습니다")
@@ -225,6 +255,41 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 		Total:          len(posts),
 		Interpretation: interpretQuery(input.Query),
 	})
+}
+
+func (s *Server) allowAIRequest(r *http.Request) bool {
+	host := strings.TrimSpace(r.RemoteAddr)
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+	if host == "" {
+		host = "unknown"
+	}
+
+	now := time.Now()
+	s.aiRateMu.Lock()
+	defer s.aiRateMu.Unlock()
+	if s.aiRateLimit == nil {
+		s.aiRateLimit = make(map[string]aiRequestWindow)
+	}
+	if len(s.aiRateLimit) > 2048 {
+		for key, existing := range s.aiRateLimit {
+			if now.Sub(existing.StartedAt) >= 2*time.Minute {
+				delete(s.aiRateLimit, key)
+			}
+		}
+	}
+	window := s.aiRateLimit[host]
+	if window.StartedAt.IsZero() || now.Sub(window.StartedAt) >= time.Minute {
+		s.aiRateLimit[host] = aiRequestWindow{StartedAt: now, Count: 1}
+		return true
+	}
+	if window.Count >= 12 {
+		return false
+	}
+	window.Count++
+	s.aiRateLimit[host] = window
+	return true
 }
 
 func (s *Server) listAdminPosts(w http.ResponseWriter, r *http.Request) {

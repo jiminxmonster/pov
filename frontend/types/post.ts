@@ -19,5 +19,5 @@ export interface SearchResponse {
   items: ExhibitionPost[]
   interpretation?: string
   total: number
+  ai_powered?: boolean
 }
-

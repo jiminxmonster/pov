@@ -147,6 +147,10 @@ func (s *Server) storePublicDataSettings(ctx context.Context, settings publicDat
 }
 
 func (s *Server) sealSetting(plaintext []byte) ([]byte, error) {
+	return s.sealNamedSetting(publicDataSettingName, plaintext)
+}
+
+func (s *Server) sealNamedSetting(name string, plaintext []byte) ([]byte, error) {
 	gcm, err := s.settingCipher()
 	if err != nil {
 		return nil, err
@@ -155,10 +159,14 @@ func (s *Server) sealSetting(plaintext []byte) ([]byte, error) {
 	if _, err := io.ReadFull(crand.Reader, nonce); err != nil {
 		return nil, err
 	}
-	return gcm.Seal(nonce, nonce, plaintext, []byte(publicDataSettingName)), nil
+	return gcm.Seal(nonce, nonce, plaintext, []byte(name)), nil
 }
 
 func (s *Server) openSetting(encrypted []byte) ([]byte, error) {
+	return s.openNamedSetting(publicDataSettingName, encrypted)
+}
+
+func (s *Server) openNamedSetting(name string, encrypted []byte) ([]byte, error) {
 	gcm, err := s.settingCipher()
 	if err != nil {
 		return nil, err
@@ -167,7 +175,7 @@ func (s *Server) openSetting(encrypted []byte) ([]byte, error) {
 		return nil, errors.New("invalid encrypted setting")
 	}
 	nonce, ciphertext := encrypted[:gcm.NonceSize()], encrypted[gcm.NonceSize():]
-	return gcm.Open(nil, nonce, ciphertext, []byte(publicDataSettingName))
+	return gcm.Open(nil, nonce, ciphertext, []byte(name))
 }
 
 func (s *Server) settingCipher() (cipher.AEAD, error) {

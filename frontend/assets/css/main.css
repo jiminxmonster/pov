@@ -366,10 +366,35 @@ textarea:focus-visible {
 }
 
 .map-interpretation {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 14px;
-  text-align: right;
+	display: flex;
+	align-items: flex-start;
+	justify-content: flex-end;
+	gap: 10px;
+	margin: 0;
+	color: var(--ink-soft);
+	font-size: 14px;
+	text-align: right;
+}
+
+.map-interpretation.is-ai,
+.interpretation.is-ai {
+	padding: 14px 16px;
+	border: 1px solid var(--ink);
+	background: var(--post-it);
+	color: var(--ink);
+	line-height: 1.65;
+}
+
+.map-interpretation.is-ai {
+	justify-content: flex-start;
+	text-align: left;
+}
+
+.map-interpretation strong,
+.interpretation strong {
+	flex: 0 0 auto;
+	font-size: 11px;
+	letter-spacing: 0.08em;
 }
 
 .discovery-header {
@@ -399,8 +424,15 @@ textarea:focus-visible {
 }
 
 .interpretation {
-  margin: 12px 0 0;
-  color: var(--ink-soft);
+	margin: 12px 0 0;
+	color: var(--ink-soft);
+}
+
+.interpretation.is-ai {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	text-align: left;
 }
 
 .compact-search {
@@ -838,6 +870,20 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
+.ai-settings {
+	border-bottom: 1px solid var(--line);
+}
+
+.ai-settings-form {
+	grid-template-columns: 1fr;
+}
+
+.ai-connected {
+	border-color: var(--ink);
+	background: var(--acid);
+	color: var(--ink);
+}
+
 .admin-settings-copy h1 {
   margin: 10px 0 0;
   font-size: clamp(30px, 4vw, 46px);
@@ -911,6 +957,12 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.trial-notice {
+	margin-top: -8px;
+	color: var(--ink-soft);
+	font-size: 11px;
 }
 
 .admin-editor-heading {

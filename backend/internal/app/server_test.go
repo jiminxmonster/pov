@@ -1,6 +1,9 @@
 package app
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -160,5 +163,72 @@ func TestPublicDataSettingsHelpers(t *testing.T) {
 	}
 	if !validPublicDataKey("valid_key-1234") || validPublicDataKey("invalid/key") {
 		t.Fatal("public data key validation is incorrect")
+	}
+}
+
+func TestNVIDIASettingsAndCurationHelpers(t *testing.T) {
+	settings := normalizeNVIDIAAISettings(nvidiaAISettings{})
+	if settings.Model != defaultNVIDIAModel {
+		t.Fatalf("unexpected default NVIDIA model: %q", settings.Model)
+	}
+	if !validNVIDIAAPIKey("nvapi-test-key-123456") || validNVIDIAAPIKey("key with spaces") {
+		t.Fatal("NVIDIA API key validation is incorrect")
+	}
+	if !validNVIDIAModel("nvidia/nemotron-3-nano-30b-a3b") || validNVIDIAModel("bad model name") {
+		t.Fatal("NVIDIA model validation is incorrect")
+	}
+
+	curation, err := parseNVIDIACuration("```json\n{\"answer\":\"여름 데이트 전시입니다.\",\"recommended_ids\":[\"post-2\",\"post-1\"]}\n```")
+	if err != nil {
+		t.Fatalf("parse NVIDIA curation: %v", err)
+	}
+	posts := []Post{{ID: "post-1", Title: "첫 전시"}, {ID: "post-2", Title: "둘째 전시"}}
+	ids := validRecommendedIDs(append(curation.RecommendedIDs, "post-2", "missing"), posts, 12)
+	ordered := postsByRecommendedIDs(posts, ids)
+	if len(ordered) != 2 || ordered[0].ID != "post-2" || ordered[1].ID != "post-1" {
+		t.Fatalf("unexpected curated post order: %#v", ordered)
+	}
+}
+
+func TestNamedSettingEncryptionUsesSeparateContext(t *testing.T) {
+	server := Server{config: Config{SessionSecret: "test-session-secret-that-is-long-enough"}}
+	encrypted, err := server.sealNamedSetting(nvidiaAISettingName, []byte("secret"))
+	if err != nil {
+		t.Fatalf("seal named setting: %v", err)
+	}
+	plaintext, err := server.openNamedSetting(nvidiaAISettingName, encrypted)
+	if err != nil || string(plaintext) != "secret" {
+		t.Fatalf("open named setting: %q, %v", plaintext, err)
+	}
+	if _, err := server.openNamedSetting(publicDataSettingName, encrypted); err == nil {
+		t.Fatal("setting encrypted for NVIDIA must not decrypt in public-data context")
+	}
+}
+
+func TestNVIDIAChatClient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected NVIDIA API path: %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer nvapi-test-key-123456" {
+			t.Fatal("NVIDIA authorization header is missing")
+		}
+		var request nvidiaChatRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode NVIDIA request: %v", err)
+		}
+		if request.Model != defaultNVIDIAModel || request.MaxTokens != 32 {
+			t.Fatalf("unexpected NVIDIA request: %#v", request)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`))
+	}))
+	defer server.Close()
+
+	content, err := callNVIDIAChatAtEndpoint(t.Context(), server.URL+"/v1", nvidiaAISettings{
+		APIKey: "nvapi-test-key-123456",
+	}, []nvidiaChatMessage{{Role: "user", Content: "test"}}, 32)
+	if err != nil || content != "OK" {
+		t.Fatalf("unexpected NVIDIA response: %q, %v", content, err)
 	}
 }

@@ -11,6 +11,7 @@ const posts = ref<ExhibitionPost[]>([])
 const selected = ref<ExhibitionPost | null>(null)
 const loading = ref(false)
 const interpretation = ref('')
+const aiPowered = ref(false)
 const mapSection = ref<HTMLElement | null>(null)
 const listSection = ref<HTMLElement | null>(null)
 const currentBbox = ref('')
@@ -29,6 +30,7 @@ async function loadPosts() {
     const result = await $fetch<SearchResponse>(`${config.public.apiBase}/posts`)
     posts.value = result.items
     interpretation.value = ''
+    aiPowered.value = false
   } finally {
     loading.value = false
   }
@@ -51,6 +53,8 @@ async function search(target: 'map' | 'list' = 'map') {
     })
     posts.value = result.items
     interpretation.value = result.interpretation || ''
+    aiPowered.value = Boolean(result.ai_powered)
+    selected.value = selected.value && posts.value.some(post => post.id === selected.value?.id) ? selected.value : null
     targetSection.value?.scrollIntoView({ behavior: 'smooth' })
   } finally {
     loading.value = false
@@ -119,7 +123,10 @@ onMounted(loadPosts)
         </form>
       </header>
 
-      <p v-if="interpretation" class="map-interpretation">{{ interpretation }}</p>
+      <p v-if="interpretation" class="map-interpretation" :class="{ 'is-ai': aiPowered }">
+        <strong v-if="aiPowered">POV AI</strong>
+        <span>{{ interpretation }}</span>
+      </p>
 
       <div class="discovery-layout">
         <aside class="post-list" aria-label="지도에 표시된 공연·전시">
@@ -176,7 +183,10 @@ onMounted(loadPosts)
         <NuxtLink to="/submit" class="submit-plus heading-submit-plus" aria-label="전시 정보 제보하기">
           <Plus :size="24" />
         </NuxtLink>
-        <p v-if="interpretation" class="interpretation">{{ interpretation }}</p>
+        <p v-if="interpretation" class="interpretation" :class="{ 'is-ai': aiPowered }">
+          <strong v-if="aiPowered">POV AI</strong>
+          <span>{{ interpretation }}</span>
+        </p>
       </div>
 
       <div class="exhibition-list" aria-live="polite" aria-label="공연·전시 검색 결과">
