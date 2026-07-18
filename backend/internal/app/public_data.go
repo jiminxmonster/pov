@@ -19,6 +19,10 @@ import (
 const seoulOpenDataSource = "서울특별시 서울 열린데이터광장 · 서울문화포털"
 
 type seoulCulturalEventResponse struct {
+	Result struct {
+		Code    string `json:"CODE"`
+		Message string `json:"MESSAGE"`
+	} `json:"RESULT"`
 	CulturalEventInfo struct {
 		Total  int `json:"list_total_count"`
 		Result struct {
@@ -63,9 +67,6 @@ type publicExhibition struct {
 }
 
 func (s *Server) StartPublicDataSync(ctx context.Context) {
-	if strings.TrimSpace(s.config.SeoulOpenDataKey) == "" {
-		return
-	}
 	go func() {
 		syncNow := func() {
 			syncContext, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -93,21 +94,23 @@ func (s *Server) StartPublicDataSync(ctx context.Context) {
 }
 
 func (s *Server) syncSeoulExhibitions(ctx context.Context) (int, error) {
-	limit := s.config.SeoulOpenDataLimit
-	if limit < 1 {
-		limit = 5
+	settings, _, err := s.loadPublicDataSettings(ctx)
+	if err != nil {
+		return 0, err
 	}
-	if strings.EqualFold(s.config.SeoulOpenDataKey, "sample") && limit > 5 {
-		limit = 5
-	}
-	if limit > 1000 {
-		limit = 1000
+	return s.syncSeoulExhibitionsWithSettings(ctx, settings)
+}
+
+func (s *Server) syncSeoulExhibitionsWithSettings(ctx context.Context, settings publicDataSettings) (int, error) {
+	settings = normalizePublicDataSettings(settings)
+	if !validPublicDataKey(settings.APIKey) {
+		return 0, errors.New("공공데이터 인증키가 설정되지 않았습니다")
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/json/culturalEventInfo/1/%d/%s/",
 		strings.TrimRight(s.config.SeoulOpenDataURL, "/"),
-		url.PathEscape(s.config.SeoulOpenDataKey),
-		limit,
+		url.PathEscape(settings.APIKey),
+		settings.Limit,
 		url.PathEscape("전시"),
 	)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -130,6 +133,9 @@ func (s *Server) syncSeoulExhibitions(ctx context.Context) (int, error) {
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 8<<20))
 	if err := decoder.Decode(&payload); err != nil {
 		return 0, errors.New("공공데이터 응답을 읽지 못했습니다")
+	}
+	if payload.Result.Code != "" && payload.Result.Code != "INFO-000" {
+		return 0, fmt.Errorf("공공데이터 API 오류: %s", payload.Result.Message)
 	}
 	if payload.CulturalEventInfo.Result.Code != "INFO-000" {
 		return 0, fmt.Errorf("공공데이터 API 오류: %s", payload.CulturalEventInfo.Result.Message)

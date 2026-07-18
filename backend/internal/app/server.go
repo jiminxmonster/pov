@@ -160,6 +160,9 @@ func (s *Server) routes() http.Handler {
 			admin.Group(func(private chi.Router) {
 				private.Use(s.requireAdmin)
 				private.Get("/session", s.adminSession)
+				private.Get("/settings/public-data", s.getPublicDataSettings)
+				private.Put("/settings/public-data", s.updatePublicDataSettings)
+				private.Post("/settings/public-data/sync", s.syncPublicDataNow)
 				private.Get("/posts", s.listAdminPosts)
 				private.Post("/posts", s.createPost)
 				private.Post("/posts/{id}/publish", s.publishPost)
@@ -862,7 +865,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 		}
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}

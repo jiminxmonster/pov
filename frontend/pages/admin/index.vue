@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Check, FileUp, ImagePlus, LoaderCircle, LogOut, Send } from '@lucide/vue'
+import { ArrowLeft, Check, FileUp, ImagePlus, KeyRound, LoaderCircle, LogOut, RefreshCw, Save, Send } from '@lucide/vue'
 import type { ExhibitionPost, SearchResponse } from '~/types/post'
 import { exhibitionTemplate } from '~/utils/exhibition'
 
@@ -11,6 +11,22 @@ const posts = ref<ExhibitionPost[]>([])
 const saving = ref(false)
 const uploading = ref(false)
 const notice = ref('')
+const publicDataKey = ref('')
+const publicDataLimit = ref(5)
+const publicDataMaskedKey = ref('')
+const publicDataStorage = ref('environment')
+const settingsSaving = ref(false)
+const settingsSyncing = ref(false)
+const settingsNotice = ref('')
+
+interface PublicDataSettingsResponse {
+  configured: boolean
+  masked_key: string
+  limit: number
+  storage: 'environment' | 'database'
+  synced_count?: number
+  message?: string
+}
 
 useSeoMeta({ title: '관리자 · 전지적관람시점', robots: 'noindex, nofollow' })
 
@@ -22,6 +38,65 @@ async function loadAdminPosts() {
     posts.value = result.items
   } catch {
     await router.replace('/admin/login')
+  }
+}
+
+function applyPublicDataSettings(result: PublicDataSettingsResponse) {
+  publicDataMaskedKey.value = result.masked_key
+  publicDataLimit.value = result.limit
+  publicDataStorage.value = result.storage
+}
+
+function apiErrorMessage(error: unknown, fallback: string) {
+  return (error as { data?: { error?: string } })?.data?.error || fallback
+}
+
+async function loadPublicDataSettings() {
+  try {
+    const result = await $fetch<PublicDataSettingsResponse>(`${config.public.apiBase}/admin/settings/public-data`, {
+      credentials: 'include',
+    })
+    applyPublicDataSettings(result)
+  } catch (error) {
+    settingsNotice.value = apiErrorMessage(error, '공공데이터 설정을 불러오지 못했습니다.')
+  }
+}
+
+async function savePublicDataSettings() {
+  settingsSaving.value = true
+  settingsNotice.value = ''
+  try {
+    const result = await $fetch<PublicDataSettingsResponse>(`${config.public.apiBase}/admin/settings/public-data`, {
+      method: 'PUT',
+      credentials: 'include',
+      body: { api_key: publicDataKey.value, limit: publicDataLimit.value },
+    })
+    applyPublicDataSettings(result)
+    publicDataKey.value = ''
+    settingsNotice.value = `${result.message} ${result.synced_count || 0}건을 반영했습니다.`
+    await loadAdminPosts()
+  } catch (error) {
+    settingsNotice.value = apiErrorMessage(error, '인증키를 저장하지 못했습니다.')
+  } finally {
+    settingsSaving.value = false
+  }
+}
+
+async function syncPublicData() {
+  settingsSyncing.value = true
+  settingsNotice.value = ''
+  try {
+    const result = await $fetch<PublicDataSettingsResponse>(`${config.public.apiBase}/admin/settings/public-data/sync`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    applyPublicDataSettings(result)
+    settingsNotice.value = `${result.message} ${result.synced_count || 0}건을 반영했습니다.`
+    await loadAdminPosts()
+  } catch (error) {
+    settingsNotice.value = apiErrorMessage(error, '공공데이터를 동기화하지 못했습니다.')
+  } finally {
+    settingsSyncing.value = false
   }
 }
 
@@ -110,7 +185,10 @@ async function logout() {
   await router.push('/')
 }
 
-onMounted(loadAdminPosts)
+onMounted(() => {
+  loadAdminPosts()
+  loadPublicDataSettings()
+})
 </script>
 
 <template>
@@ -120,6 +198,44 @@ onMounted(loadAdminPosts)
       <strong>POV ADMIN</strong>
       <button class="quiet-link" type="button" @click="logout"><LogOut :size="17" /> 로그아웃</button>
     </header>
+
+    <section class="admin-settings" aria-labelledby="public-data-title">
+      <div class="admin-settings-copy">
+        <p class="eyebrow">DATA CONNECTION</p>
+        <h1 id="public-data-title">공공 전시 데이터 인증키</h1>
+        <p>서울 열린데이터광장 인증키를 저장하면 전시 정보를 지도와 목록에 바로 반영합니다.</p>
+        <span v-if="publicDataMaskedKey" class="settings-key-status">
+          <KeyRound :size="15" /> {{ publicDataMaskedKey }} · 최대 {{ publicDataLimit }}건 · {{ publicDataStorage === 'database' ? '운영자 저장' : '서버 기본값' }}
+        </span>
+      </div>
+
+      <form class="admin-settings-form" @submit.prevent="savePublicDataSettings">
+        <label class="settings-key-field">
+          <span>서울시 API 인증키</span>
+          <input
+            v-model="publicDataKey"
+            type="password"
+            autocomplete="off"
+            :placeholder="publicDataMaskedKey ? `새 인증키 입력 · 현재 ${publicDataMaskedKey}` : '인증키 입력'"
+          >
+        </label>
+        <label class="settings-limit-field">
+          <span>가져올 전시 수</span>
+          <input v-model.number="publicDataLimit" type="number" min="1" max="1000" inputmode="numeric">
+        </label>
+        <div class="settings-actions">
+          <button class="pill-button secondary" type="button" :disabled="settingsSaving || settingsSyncing" @click="syncPublicData">
+            <LoaderCircle v-if="settingsSyncing" :size="17" class="spin" />
+            <RefreshCw v-else :size="17" /> 지금 동기화
+          </button>
+          <button class="pill-button" type="submit" :disabled="settingsSaving || settingsSyncing">
+            <LoaderCircle v-if="settingsSaving" :size="17" class="spin" />
+            <Save v-else :size="17" /> 저장하고 동기화
+          </button>
+        </div>
+        <p class="settings-notice" aria-live="polite">{{ settingsNotice || '입력한 인증키는 암호화되어 저장되며 화면에는 다시 표시되지 않습니다.' }}</p>
+      </form>
+    </section>
 
     <section class="admin-editor" aria-labelledby="editor-title">
       <div class="admin-editor-heading">

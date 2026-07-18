@@ -31,6 +31,12 @@ CREATE INDEX IF NOT EXISTS posts_status_published_at_idx ON posts (status, publi
 CREATE INDEX IF NOT EXISTS posts_location_idx ON posts (longitude, latitude);
 CREATE INDEX IF NOT EXISTS posts_metadata_idx ON posts USING GIN (metadata);
 
+CREATE TABLE IF NOT EXISTS app_settings (
+  name TEXT PRIMARY KEY,
+  value_encrypted BYTEA NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 INSERT INTO posts (slug, title, body_markdown, metadata, address, latitude, longitude, status, source_type, published_at)
 VALUES
   (

@@ -130,3 +130,35 @@ func TestConvertSeoulEvent(t *testing.T) {
 		t.Fatal("ended exhibition must be ignored")
 	}
 }
+
+func TestEncryptedSettingRoundTrip(t *testing.T) {
+	server := Server{config: Config{SessionSecret: "test-session-secret-that-is-long-enough"}}
+	plaintext := []byte(`{"api_key":"secret-key-1234","limit":100}`)
+	encrypted, err := server.sealSetting(plaintext)
+	if err != nil {
+		t.Fatalf("seal setting: %v", err)
+	}
+	if strings.Contains(string(encrypted), "secret-key-1234") {
+		t.Fatal("encrypted setting contains plaintext key")
+	}
+	decrypted, err := server.openSetting(encrypted)
+	if err != nil {
+		t.Fatalf("open setting: %v", err)
+	}
+	if string(decrypted) != string(plaintext) {
+		t.Fatalf("unexpected decrypted value: %q", decrypted)
+	}
+}
+
+func TestPublicDataSettingsHelpers(t *testing.T) {
+	settings := normalizePublicDataSettings(publicDataSettings{APIKey: "sample", Limit: 500})
+	if settings.Limit != 5 {
+		t.Fatalf("sample key must be capped at 5, got %d", settings.Limit)
+	}
+	if got := maskSecret("1234567890abcdef"); got != "1234••••••cdef" {
+		t.Fatalf("unexpected masked key: %q", got)
+	}
+	if !validPublicDataKey("valid_key-1234") || validPublicDataKey("invalid/key") {
+		t.Fatal("public data key validation is incorrect")
+	}
+}

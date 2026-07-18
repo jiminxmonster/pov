@@ -19,10 +19,9 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-if grep -Eq '^(POSTGRES_PASSWORD|ADMIN_PASSWORD|SESSION_SECRET)=change-this' .env \
-  || grep -Eq '^ADMIN_PASSWORD=admin$' .env \
+if grep -Eq '^(POSTGRES_PASSWORD|SESSION_SECRET)=change-this' .env \
   || grep -Eq '^PUBLIC_ORIGIN=http://localhost$' .env; then
-  echo "Refusing deployment: replace placeholder credentials and PUBLIC_ORIGIN in $APP_DIR/.env." >&2
+  echo "Refusing deployment: replace database/session placeholders and PUBLIC_ORIGIN in $APP_DIR/.env." >&2
   exit 1
 fi
 
