@@ -580,6 +580,35 @@ textarea:focus-visible {
   filter: drop-shadow(0 9px 12px rgba(17, 17, 17, 0.18));
 }
 
+.pov-cluster-shell {
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+}
+
+.pov-cluster-count {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #3cff35;
+  box-shadow: 0 5px 12px rgba(17, 17, 17, 0.2);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  transition: transform var(--motion-quick), box-shadow var(--motion-quick);
+}
+
+.pov-cluster-shell:hover .pov-cluster-count,
+.pov-cluster-shell:focus .pov-cluster-count {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(17, 17, 17, 0.23);
+}
+
 .detail-backdrop {
   position: fixed;
   z-index: 1000;

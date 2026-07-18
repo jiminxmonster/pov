@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import L, { type Map as LeafletMap, type Marker } from 'leaflet'
+import 'leaflet.markercluster'
+import 'leaflet.markercluster/dist/MarkerCluster.css'
 import type { ExhibitionPost } from '~/types/post'
 
 const config = useRuntimeConfig()
@@ -18,11 +20,13 @@ const emit = defineEmits<{
 const mapElement = ref<HTMLElement | null>(null)
 let map: LeafletMap | null = null
 let markers: Marker[] = []
+let markerClusterGroup: L.MarkerClusterGroup | null = null
 
 function renderMarkers() {
   const activeMap = map
-  if (!activeMap) return
-  markers.forEach(marker => marker.remove())
+  const activeClusterGroup = markerClusterGroup
+  if (!activeMap || !activeClusterGroup) return
+  activeClusterGroup.clearLayers()
   markers = []
 
   props.posts.forEach((post, index) => {
@@ -34,10 +38,11 @@ function renderMarkers() {
       iconAnchor: [75, 108],
     })
     const marker = L.marker([post.latitude, post.longitude], { icon })
-      .addTo(activeMap)
       .on('click', () => emit('select', post))
     markers.push(marker)
   })
+
+  activeClusterGroup.addLayers(markers)
 }
 
 function fitPosts() {
@@ -69,6 +74,20 @@ function initializeMap() {
   }).addTo(map)
 
   L.control.zoom({ position: 'bottomright' }).addTo(map)
+  markerClusterGroup = L.markerClusterGroup({
+    maxClusterRadius: 68,
+    showCoverageOnHover: false,
+    spiderfyOnMaxZoom: false,
+    zoomToBoundsOnClick: true,
+    removeOutsideVisibleBounds: true,
+    chunkedLoading: true,
+    iconCreateFunction: cluster => L.divIcon({
+      className: 'pov-cluster-shell',
+      html: `<span class="pov-cluster-count" aria-label="겹친 전시 ${cluster.getChildCount()}개">${cluster.getChildCount()}</span>`,
+      iconSize: [48, 48],
+      iconAnchor: [24, 24],
+    }),
+  }).addTo(map)
   map.on('moveend', () => {
     if (!map) return
     const bounds = map.getBounds()
@@ -89,6 +108,7 @@ watch(() => props.selectedId, renderMarkers)
 onBeforeUnmount(() => {
   map?.remove()
   map = null
+  markerClusterGroup = null
 })
 </script>
 
