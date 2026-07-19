@@ -38,11 +38,12 @@ type nvidiaAISettingsResponse struct {
 }
 
 type nvidiaChatRequest struct {
-	Model       string              `json:"model"`
-	Messages    []nvidiaChatMessage `json:"messages"`
-	Temperature float64             `json:"temperature"`
-	MaxTokens   int                 `json:"max_tokens"`
-	Stream      bool                `json:"stream"`
+	Model           string              `json:"model"`
+	Messages        []nvidiaChatMessage `json:"messages"`
+	Temperature     float64             `json:"temperature"`
+	MaxTokens       int                 `json:"max_tokens"`
+	ReasoningBudget int                 `json:"reasoning_budget,omitempty"`
+	Stream          bool                `json:"stream"`
 }
 
 type nvidiaChatMessage struct {
@@ -418,7 +419,8 @@ func callNVIDIAChat(ctx context.Context, settings nvidiaAISettings, messages []n
 func callNVIDIAChatAtEndpoint(ctx context.Context, endpoint string, settings nvidiaAISettings, messages []nvidiaChatMessage, maxTokens int) (string, error) {
 	settings = normalizeNVIDIAAISettings(settings)
 	payload, err := json.Marshal(nvidiaChatRequest{
-		Model: settings.Model, Messages: messages, Temperature: 0.2, MaxTokens: maxTokens, Stream: false,
+		Model: settings.Model, Messages: messages, Temperature: 0.2, MaxTokens: maxTokens,
+		ReasoningBudget: nvidiaReasoningBudget(settings.Model, maxTokens), Stream: false,
 	})
 	if err != nil {
 		return "", err
@@ -450,6 +452,13 @@ func callNVIDIAChatAtEndpoint(ctx context.Context, endpoint string, settings nvi
 		return "", errors.New("NVIDIA response did not contain a choice")
 	}
 	return result.Choices[0].Message.Content, nil
+}
+
+func nvidiaReasoningBudget(model string, maxTokens int) int {
+	if !strings.Contains(strings.ToLower(model), "nemotron-3-") || maxTokens < 64 {
+		return 0
+	}
+	return min(256, maxTokens/4)
 }
 
 func parseNVIDIACuration(content string) (nvidiaCuration, error) {

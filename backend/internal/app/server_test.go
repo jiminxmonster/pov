@@ -319,7 +319,7 @@ func TestNVIDIAChatClient(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatalf("decode NVIDIA request: %v", err)
 		}
-		if request.Model != defaultNVIDIAModel || request.MaxTokens != 32 {
+		if request.Model != defaultNVIDIAModel || request.MaxTokens != 32 || request.ReasoningBudget != 0 {
 			t.Fatalf("unexpected NVIDIA request: %#v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -332,5 +332,14 @@ func TestNVIDIAChatClient(t *testing.T) {
 	}, []nvidiaChatMessage{{Role: "user", Content: "test"}}, 32)
 	if err != nil || content != "OK" {
 		t.Fatalf("unexpected NVIDIA response: %q, %v", content, err)
+	}
+}
+
+func TestNVIDIAReasoningBudgetLeavesRoomForStructuredAnswer(t *testing.T) {
+	if got := nvidiaReasoningBudget(defaultNVIDIAModel, 900); got != 225 {
+		t.Fatalf("expected bounded reasoning budget, got %d", got)
+	}
+	if got := nvidiaReasoningBudget("qwen/qwen3.5-122b-a10b", 900); got != 0 {
+		t.Fatalf("reasoning budget should be omitted for other model families, got %d", got)
 	}
 }
