@@ -408,6 +408,23 @@ func isInformationQuery(query string) bool {
 		!containsAny(lower, "추천", "찾아", "골라", "볼만한")
 }
 
+func aiConversationQuery(query string, history []aiConversationTurn) string {
+	parts := make([]string, 0, len(history)+1)
+	for _, turn := range history {
+		if strings.EqualFold(strings.TrimSpace(turn.Role), "user") && strings.TrimSpace(turn.Content) != "" {
+			parts = append(parts, strings.TrimSpace(limitRunes(turn.Content, 200)))
+		}
+	}
+	if strings.TrimSpace(query) != "" {
+		parts = append(parts, strings.TrimSpace(limitRunes(query, 200)))
+	}
+	return strings.Join(parts, " ")
+}
+
+func conversationRequestsRecommendation(query string, history []aiConversationTurn) bool {
+	return containsAny(strings.ToLower(aiConversationQuery(query, history)), "추천", "뭐 볼", "무엇을 볼", "어디 갈", "볼만한")
+}
+
 func containsAny(value string, needles ...string) bool {
 	for _, needle := range needles {
 		if strings.Contains(value, needle) {

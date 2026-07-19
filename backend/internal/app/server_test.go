@@ -367,3 +367,22 @@ func TestInitialWizardAndInformationRouting(t *testing.T) {
 		t.Fatal("recommendation request should remain eligible for the map")
 	}
 }
+
+func TestConversationSearchKeepsRecommendationConstraints(t *testing.T) {
+	history := []aiConversationTurn{
+		{Role: "user", Content: "전시 추천해줘"},
+		{Role: "assistant", Content: "누구와 함께하시나요?"},
+	}
+	query := aiConversationQuery("연인과 함께", history)
+	if !conversationRequestsRecommendation("연인과 함께", history) {
+		t.Fatal("wizard follow-up should remain a recommendation request")
+	}
+	terms := knownSearchTerms(query)
+	if len(terms) != 1 || terms[0] != "연인" {
+		t.Fatalf("expected companion constraint, got %#v", terms)
+	}
+	directTerms := recommendationCandidateTerms("성수에서 연인과 함께 볼 무료 전시")
+	if len(directTerms) != 2 || directTerms[0] != "무료" || directTerms[1] != "성수" {
+		t.Fatalf("expected hard recommendation terms only, got %#v", directTerms)
+	}
+}

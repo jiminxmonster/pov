@@ -250,7 +250,15 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		settings, configured, settingsErr := s.loadNVIDIAAISettings(r.Context())
 		if settingsErr == nil && configured && s.allowAIRequest(r) {
-			candidates, candidateErr := s.queryPosts(r.Context(), "", "published", input.BBox, 80)
+			candidateQuery := ""
+			conversationQuery := aiConversationQuery(input.Query, input.History)
+			if conversationRequestsRecommendation(input.Query, input.History) {
+				candidateQuery = strings.Join(recommendationCandidateTerms(conversationQuery), " ")
+			}
+			candidates, candidateErr := s.queryPosts(r.Context(), candidateQuery, "published", input.BBox, 80)
+			if candidateErr == nil && len(candidates) == 0 && candidateQuery != "" {
+				candidates, candidateErr = s.queryPosts(r.Context(), "", "published", input.BBox, 80)
+			}
 			if candidateErr == nil && len(candidates) > 0 {
 				curation, curationErr := curateWithNVIDIA(r.Context(), settings, input.Query, input.History, candidates)
 				if curationErr == nil {
@@ -266,7 +274,7 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	posts, err := s.queryPosts(r.Context(), input.Query, "published", input.BBox, 100)
+	posts, err := s.queryPosts(r.Context(), aiConversationQuery(input.Query, input.History), "published", input.BBox, 100)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "검색 중 문제가 발생했습니다")
 		return
@@ -1050,14 +1058,11 @@ func searchTerms(query string) []string {
 		return []string{}
 	}
 
-	known := []string{"무료", "주차", "도슨트", "아이", "사진", "성수", "강남", "삼청", "홍대", "한남", "을지로"}
 	terms := make([]string, 0, 4)
 	seen := map[string]bool{}
-	for _, term := range known {
-		if strings.Contains(query, term) {
-			terms = append(terms, term)
-			seen[term] = true
-		}
+	for _, term := range knownSearchTerms(query) {
+		terms = append(terms, term)
+		seen[term] = true
 	}
 	if len(terms) > 0 {
 		return terms
@@ -1081,6 +1086,28 @@ func searchTerms(query string) []string {
 		seen[term] = true
 		if len(terms) == 5 {
 			break
+		}
+	}
+	return terms
+}
+
+func knownSearchTerms(query string) []string {
+	known := []string{"무료", "주차", "도슨트", "아이", "연인", "데이트", "가족", "혼자", "사진", "성수", "강남", "삼청", "홍대", "한남", "을지로"}
+	terms := make([]string, 0, 4)
+	for _, term := range known {
+		if strings.Contains(query, term) {
+			terms = append(terms, term)
+		}
+	}
+	return terms
+}
+
+func recommendationCandidateTerms(query string) []string {
+	known := []string{"무료", "주차", "도슨트", "아이", "사진", "성수", "강남", "삼청", "홍대", "한남", "을지로"}
+	terms := make([]string, 0, 4)
+	for _, term := range known {
+		if strings.Contains(query, term) {
+			terms = append(terms, term)
 		}
 	}
 	return terms
