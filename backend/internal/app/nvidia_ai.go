@@ -493,16 +493,26 @@ func nvidiaChatTemplateSettings(model string) *nvidiaChatTemplateKwargs {
 
 func parseNVIDIACuration(content string) (nvidiaCuration, error) {
 	content = strings.TrimSpace(content)
-	start := strings.Index(content, "{")
-	end := strings.LastIndex(content, "}")
-	if start < 0 || end < start {
+	foundObject := false
+	for offset := 0; offset < len(content); {
+		relativeStart := strings.Index(content[offset:], "{")
+		if relativeStart < 0 {
+			break
+		}
+		start := offset + relativeStart
+		foundObject = true
+		var curation nvidiaCuration
+		decoder := json.NewDecoder(strings.NewReader(content[start:]))
+		if err := decoder.Decode(&curation); err == nil &&
+			(curation.Mode != "" || curation.Answer != "" || curation.Question != "" || len(curation.RecommendedIDs) > 0) {
+			return curation, nil
+		}
+		offset = start + 1
+	}
+	if !foundObject {
 		return nvidiaCuration{}, errors.New("NVIDIA response was not JSON")
 	}
-	var curation nvidiaCuration
-	if err := json.Unmarshal([]byte(content[start:end+1]), &curation); err != nil {
-		return nvidiaCuration{}, errors.New("NVIDIA curation JSON was invalid")
-	}
-	return curation, nil
+	return nvidiaCuration{}, errors.New("NVIDIA curation JSON was invalid")
 }
 
 func validRecommendedIDs(ids []string, posts []Post, limit int) []string {

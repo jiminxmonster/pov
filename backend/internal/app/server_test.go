@@ -257,6 +257,14 @@ func TestNVIDIASettingsAndCurationHelpers(t *testing.T) {
 	}
 }
 
+func TestParseNVIDIACurationFindsValidObjectAfterModelPreamble(t *testing.T) {
+	content := "검토 형식: {not-json}\n최종 답변:\n```json\n{\"mode\":\"chat\",\"answer\":\"관람료는 무료입니다.\",\"recommended_ids\":[\"post-1\"]}\n```"
+	curation, err := parseNVIDIACuration(content)
+	if err != nil || curation.Mode != "chat" || curation.Answer == "" || len(curation.RecommendedIDs) != 1 {
+		t.Fatalf("expected valid trailing object, got %#v, %v", curation, err)
+	}
+}
+
 func TestAIRouteNormalizationAndFallback(t *testing.T) {
 	options := normalizedAIOptions([]string{" 연인과 ", "연인과", "가족과", "친구와", "혼자", "추가"})
 	if len(options) != 4 || options[0] != "연인과" {
