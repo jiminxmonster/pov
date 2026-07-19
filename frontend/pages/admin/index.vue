@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ArrowLeft, FileUp, ImagePlus, KeyRound, LoaderCircle, LogOut, RefreshCw, Save, Send } from '@lucide/vue'
+import { ArrowLeft, FileUp, KeyRound, LoaderCircle, LogOut, RefreshCw, Save, Send } from '@lucide/vue'
 import type { ExhibitionPost, SearchResponse } from '~/types/post'
 import { exhibitionTemplate, parseExhibitionContent, parseExhibitionFields } from '~/utils/exhibition'
 
 const config = useRuntimeConfig()
 const router = useRouter()
 const body = ref(exhibitionTemplate)
-const imageUrl = ref('')
 const posts = ref<ExhibitionPost[]>([])
 const saving = ref(false)
 const uploading = ref(false)
@@ -179,33 +178,11 @@ async function testAISettings() {
   }
 }
 
-async function uploadImage(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  uploading.value = true
-  notice.value = ''
-  try {
-    const form = new FormData()
-    form.append('file', file)
-    const result = await $fetch<{ url: string }>(`${config.public.apiBase}/admin/media`, {
-      method: 'POST',
-      credentials: 'include',
-      body: form,
-    })
-    imageUrl.value = result.url
-    notice.value = '대표 이미지가 준비됐습니다.'
-  } finally {
-    uploading.value = false
-    input.value = ''
-  }
-}
-
 function previewFieldContent(value: string) {
   return parseExhibitionContent(value)
 }
 
-async function uploadBodyImage(file: File) {
+async function uploadBodyMedia(file: File) {
   const form = new FormData()
   form.append('file', file)
   return await $fetch<{ url: string }>(`${config.public.apiBase}/admin/media`, {
@@ -213,10 +190,6 @@ async function uploadBodyImage(file: File) {
     credentials: 'include',
     body: form,
   })
-}
-
-function useBodyImageAsCover(image: { url: string }) {
-  imageUrl.value = image.url
 }
 
 async function importDocument(event: Event) {
@@ -248,11 +221,10 @@ async function save(publish: boolean) {
     await $fetch(`${config.public.apiBase}/admin/posts`, {
       method: 'POST',
       credentials: 'include',
-      body: { body_markdown: body.value, image_url: imageUrl.value || firstInlineImageURL.value, publish },
+      body: { body_markdown: body.value, image_url: firstInlineImageURL.value, publish },
     })
     notice.value = publish ? '전시 목록에 게시했습니다.' : '초안으로 저장했습니다.'
     body.value = exhibitionTemplate
-    imageUrl.value = ''
     await loadAdminPosts()
   } finally {
     saving.value = false
@@ -391,18 +363,13 @@ onMounted(() => {
             <FileUp :size="17" /> 자료 불러오기
             <input type="file" accept=".txt,.md,.csv,.xlsx,.docx,.pdf" @change="importDocument">
           </label>
-          <label class="tool-button">
-            <ImagePlus :size="17" /> 대표 사진
-            <input type="file" accept="image/*" @change="uploadImage">
-          </label>
         </div>
       </div>
 
       <div class="editor-workspace">
         <ExhibitionBlockEditor
           v-model="body"
-          :upload-image="uploadBodyImage"
-          @set-cover="useBodyImageAsCover"
+          :upload-media="uploadBodyMedia"
           @uploading="editorUploading = $event"
           @notice="notice = $event"
         />
@@ -410,9 +377,9 @@ onMounted(() => {
         <article class="editor-live-preview" aria-label="게시글 실시간 미리보기">
           <header class="editor-preview-header">
             <p class="eyebrow">LIVE PREVIEW</p>
-            <span v-if="editorUploading"><LoaderCircle :size="14" class="spin" /> 이미지 올리는 중</span>
+            <span v-if="editorUploading"><LoaderCircle :size="14" class="spin" /> 미디어 올리는 중</span>
           </header>
-          <img v-if="imageUrl || firstInlineImageURL" :src="imageUrl || firstInlineImageURL" alt="대표 이미지 미리보기" class="editor-preview-cover">
+          <img v-if="firstInlineImageURL" :src="firstInlineImageURL" alt="대표 이미지 미리보기" class="editor-preview-cover">
           <h2>{{ previewTitle }}</h2>
           <dl v-if="previewFields.length" class="detail-fields editor-preview-fields">
             <div v-for="field in previewFields" :key="field.label" class="detail-field">
@@ -426,6 +393,10 @@ onMounted(() => {
                       class="detail-inline-image"
                     >
                     <figcaption v-if="segment.alt && segment.alt !== '전시 본문 이미지'">{{ segment.alt }}</figcaption>
+                  </figure>
+                  <figure v-else-if="segment.type === 'video'" class="detail-inline-figure">
+                    <video :src="segment.url" class="detail-inline-video" controls playsinline preload="metadata" />
+                    <figcaption v-if="segment.alt && segment.alt !== '전시 본문 영상'">{{ segment.alt }}</figcaption>
                   </figure>
                   <span v-else class="detail-inline-text">{{ segment.value }}</span>
                 </template>

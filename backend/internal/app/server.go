@@ -343,7 +343,7 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 60<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, 120<<20)
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "제보 내용을 읽지 못했습니다")
 		return
@@ -368,7 +368,7 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, inlineURLs, savedNames, err := s.saveSubmissionInlineImages(r, rawBody)
+	body, inlineImageURLs, savedNames, err := s.saveSubmissionInlineMedia(r, rawBody)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -382,45 +382,7 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 	metadata, title, address, latitude, longitude := parseTemplate(body)
 	metadataBytes, _ := json.Marshal(metadata)
 
-	coverInlineURL := ""
-	if coverInlineID := strings.TrimSpace(r.FormValue("cover_inline_id")); coverInlineID != "" {
-		var ok bool
-		coverInlineURL, ok = inlineURLs[coverInlineID]
-		if !ok {
-			cleanupUploads()
-			writeError(w, http.StatusBadRequest, "대표로 선택한 본문 이미지를 확인해 주세요")
-			return
-		}
-	}
-
-	imageURL := ""
-	file, header, err := r.FormFile("image")
-	if err == nil {
-		defer file.Close()
-		if header.Size > 8<<20 {
-			cleanupUploads()
-			writeError(w, http.StatusBadRequest, "대표 이미지는 8MB 이하로 선택해 주세요")
-			return
-		}
-		name, saveErr := s.saveImageUpload(file, header)
-		if saveErr != nil {
-			cleanupUploads()
-			writeError(w, http.StatusBadRequest, saveErr.Error())
-			return
-		}
-		savedNames = append(savedNames, name)
-		imageURL = prefixedPath(s.config.BasePath, "/uploads/"+name)
-	} else if !errors.Is(err, http.ErrMissingFile) {
-		cleanupUploads()
-		writeError(w, http.StatusBadRequest, "대표 이미지를 읽지 못했습니다")
-		return
-	}
-	if imageURL == "" {
-		imageURL = coverInlineURL
-	}
-	if imageURL == "" {
-		imageURL = firstInlineImageURL(rawBody, inlineURLs)
-	}
+	imageURL := firstInlineImageURL(rawBody, inlineImageURLs)
 
 	row := s.db.QueryRow(r.Context(), `
 		INSERT INTO posts (slug, title, body_markdown, metadata, address, latitude, longitude, image_url, status, source_type)
@@ -610,20 +572,32 @@ func (s *Server) validSession(value string) bool {
 }
 
 func (s *Server) uploadMedia(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 15<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, 35<<20)
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "이미지 파일을 선택해 주세요")
+		writeError(w, http.StatusBadRequest, "이미지 또는 영상 파일을 선택해 주세요")
 		return
 	}
 	defer file.Close()
+	extension := strings.ToLower(filepath.Ext(header.Filename))
+	isVideo := extension == ".mp4" || extension == ".webm" || extension == ".mov"
+	if (!isVideo && header.Size > 8<<20) || (isVideo && header.Size > 30<<20) {
+		writeError(w, http.StatusBadRequest, map[bool]string{
+			true:  "영상은 한 개당 30MB 이하로 선택해 주세요",
+			false: "이미지는 장당 8MB 이하로 선택해 주세요",
+		}[isVideo])
+		return
+	}
 
-	name, err := s.saveImageUpload(file, header)
+	name, mediaType, err := s.saveMediaUpload(file, header)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"url": prefixedPath(s.config.BasePath, "/uploads/"+name)})
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"url":  prefixedPath(s.config.BasePath, "/uploads/"+name),
+		"type": mediaType,
+	})
 }
 
 func normalizeBasePath(value string) string {
@@ -718,8 +692,44 @@ func (s *Server) saveImageUpload(file multipart.File, header *multipart.FileHead
 	return name, nil
 }
 
-func (s *Server) saveSubmissionInlineImages(r *http.Request, body string) (string, map[string]string, []string, error) {
-	urls := make(map[string]string)
+func (s *Server) saveVideoUpload(file multipart.File, header *multipart.FileHeader) (string, error) {
+	extension := strings.ToLower(filepath.Ext(header.Filename))
+	if extension != ".mp4" && extension != ".webm" && extension != ".mov" {
+		return "", errors.New("MP4, WebM 또는 MOV 영상만 업로드할 수 있습니다")
+	}
+
+	signature := make([]byte, 512)
+	n, err := file.Read(signature)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", errors.New("영상을 확인하지 못했습니다")
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", errors.New("영상을 확인하지 못했습니다")
+	}
+	isMP4Family := n >= 12 && string(signature[4:8]) == "ftyp"
+	isWebM := n >= 4 && signature[0] == 0x1a && signature[1] == 0x45 && signature[2] == 0xdf && signature[3] == 0xa3
+	if (extension == ".webm" && !isWebM) || (extension != ".webm" && !isMP4Family) {
+		return "", errors.New("올바른 영상 파일을 선택해 주세요")
+	}
+	name, err := s.saveUpload(file, extension)
+	if err != nil {
+		return "", errors.New("영상을 저장하지 못했습니다")
+	}
+	return name, nil
+}
+
+func (s *Server) saveMediaUpload(file multipart.File, header *multipart.FileHeader) (string, string, error) {
+	extension := strings.ToLower(filepath.Ext(header.Filename))
+	if extension == ".mp4" || extension == ".webm" || extension == ".mov" {
+		name, err := s.saveVideoUpload(file, header)
+		return name, "video", err
+	}
+	name, err := s.saveImageUpload(file, header)
+	return name, "image", err
+}
+
+func (s *Server) saveSubmissionInlineMedia(r *http.Request, body string) (string, map[string]string, []string, error) {
+	imageURLs := make(map[string]string)
 	savedNames := make([]string, 0)
 	cleanup := func() {
 		for _, name := range savedNames {
@@ -731,39 +741,66 @@ func (s *Server) saveSubmissionInlineImages(r *http.Request, body string) (strin
 	if r.MultipartForm != nil {
 		files = r.MultipartForm.File
 	}
-	inlineCount := 0
+	mediaCount := 0
+	videoCount := 0
 	for fieldName := range files {
-		if strings.HasPrefix(fieldName, "inline_image_") {
-			inlineCount++
+		if strings.HasPrefix(fieldName, "inline_image_") || strings.HasPrefix(fieldName, "inline_video_") {
+			mediaCount++
+		}
+		if strings.HasPrefix(fieldName, "inline_video_") {
+			videoCount++
 		}
 	}
-	if inlineCount > 6 {
-		return "", nil, nil, errors.New("본문 이미지는 게시글당 최대 6장까지 넣을 수 있습니다")
+	if mediaCount > 6 {
+		return "", nil, nil, errors.New("이미지와 영상은 합해서 최대 6개까지 넣을 수 있습니다")
+	}
+	if videoCount > 3 {
+		return "", nil, nil, errors.New("영상은 게시글당 최대 3개까지 넣을 수 있습니다")
 	}
 
 	resolvedBody := body
 	for fieldName, headers := range files {
-		if !strings.HasPrefix(fieldName, "inline_image_") {
+		mediaType := ""
+		mediaID := ""
+		placeholderScheme := ""
+		if strings.HasPrefix(fieldName, "inline_image_") {
+			mediaType = "image"
+			mediaID = strings.TrimPrefix(fieldName, "inline_image_")
+			placeholderScheme = "pov-inline://"
+		} else if strings.HasPrefix(fieldName, "inline_video_") {
+			mediaType = "video"
+			mediaID = strings.TrimPrefix(fieldName, "inline_video_")
+			placeholderScheme = "pov-video://"
+		} else {
 			continue
 		}
-		imageID := strings.TrimPrefix(fieldName, "inline_image_")
-		placeholder := "pov-inline://" + imageID
+		placeholder := placeholderScheme + mediaID
 		markdownPlaceholder := "(" + placeholder + ")"
-		if !inlineImageIDPattern.MatchString(imageID) || len(headers) != 1 || !strings.Contains(resolvedBody, markdownPlaceholder) {
+		if !inlineImageIDPattern.MatchString(mediaID) || len(headers) != 1 || !strings.Contains(resolvedBody, markdownPlaceholder) {
 			cleanup()
-			return "", nil, nil, errors.New("본문 이미지 정보가 올바르지 않습니다")
+			return "", nil, nil, errors.New("본문 미디어 정보가 올바르지 않습니다")
 		}
 		header := headers[0]
-		if header.Size > 8<<20 {
+		if mediaType == "image" && header.Size > 8<<20 {
 			cleanup()
-			return "", nil, nil, errors.New("본문 이미지는 장당 8MB 이하로 선택해 주세요")
+			return "", nil, nil, errors.New("이미지는 장당 8MB 이하로 선택해 주세요")
+		}
+		if mediaType == "video" && header.Size > 30<<20 {
+			cleanup()
+			return "", nil, nil, errors.New("영상은 한 개당 30MB 이하로 선택해 주세요")
 		}
 		file, err := header.Open()
 		if err != nil {
 			cleanup()
-			return "", nil, nil, errors.New("본문 이미지를 읽지 못했습니다")
+			return "", nil, nil, errors.New("본문 미디어를 읽지 못했습니다")
 		}
-		name, saveErr := s.saveImageUpload(file, header)
+		var name string
+		var saveErr error
+		if mediaType == "image" {
+			name, saveErr = s.saveImageUpload(file, header)
+		} else {
+			name, saveErr = s.saveVideoUpload(file, header)
+		}
 		_ = file.Close()
 		if saveErr != nil {
 			cleanup()
@@ -771,15 +808,17 @@ func (s *Server) saveSubmissionInlineImages(r *http.Request, body string) (strin
 		}
 		savedNames = append(savedNames, name)
 		url := prefixedPath(s.config.BasePath, "/uploads/"+name)
-		urls[imageID] = url
+		if mediaType == "image" {
+			imageURLs[mediaID] = url
+		}
 		resolvedBody = strings.ReplaceAll(resolvedBody, markdownPlaceholder, "("+url+")")
 	}
 
-	if strings.Contains(resolvedBody, "pov-inline://") {
+	if strings.Contains(resolvedBody, "pov-inline://") || strings.Contains(resolvedBody, "pov-video://") {
 		cleanup()
-		return "", nil, nil, errors.New("저장되지 않은 본문 이미지가 있습니다. 이미지를 다시 선택해 주세요")
+		return "", nil, nil, errors.New("저장되지 않은 본문 미디어가 있습니다. 파일을 다시 선택해 주세요")
 	}
-	return strings.TrimSpace(resolvedBody), urls, savedNames, nil
+	return strings.TrimSpace(resolvedBody), imageURLs, savedNames, nil
 }
 
 func firstInlineImageURL(body string, urls map[string]string) string {

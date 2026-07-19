@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronUp, LoaderCircle, Plus, Star, Trash2 } from '@lucide/vue'
+import { ChevronDown, ChevronUp, ImageIcon, LoaderCircle, Plus, Trash2, Video, X } from '@lucide/vue'
 import { exhibitionLabels, parseExhibitionContent, parseExhibitionFields } from '~/utils/exhibition'
+
+type MediaKind = 'image' | 'video'
 
 interface TextBlock {
   id: string
@@ -8,51 +10,52 @@ interface TextBlock {
   text: string
 }
 
-interface ImageBlock {
+interface MediaBlock {
   id: string
-  type: 'image'
+  type: MediaKind
   url: string
   source: string
-  alt: string
+  caption: string
   file?: File
   localURL?: boolean
 }
 
-type EditorBlock = TextBlock | ImageBlock
+type EditorBlock = TextBlock | MediaBlock
 
 interface EditorField {
   label: string
   blocks: EditorBlock[]
 }
 
-interface PendingEditorImage {
+interface PendingEditorMedia {
   id: string
+  type: MediaKind
   file: File
-}
-
-interface EditorCoverImage {
-  id: string
-  url: string
-  file?: File
 }
 
 const props = defineProps<{
   modelValue: string
-  uploadImage?: (file: File) => Promise<{ url: string }>
+  uploadMedia?: (file: File, type: MediaKind) => Promise<{ url: string }>
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
-  'pending-images': [images: PendingEditorImage[]]
-  'set-cover': [image: EditorCoverImage]
+  'pending-media': [media: PendingEditorMedia[]]
   'uploading': [value: boolean]
   'notice': [message: string]
 }>()
 
 let nextID = 0
+let editorObserver: IntersectionObserver | undefined
 const cursorByBlock = new Map<string, number>()
+const editorRoot = ref<HTMLElement | null>(null)
+const mediaDock = ref<HTMLElement | null>(null)
 const fields = ref<EditorField[]>(parseDocument(props.modelValue))
-const uploadingBlockID = ref('')
+const activeTextID = ref('')
+const menuOpen = ref(false)
+const uploading = ref(false)
+const dockVisible = ref(false)
+const dockLeft = ref(18)
 
 function newID(prefix: string) {
   nextID += 1
@@ -64,13 +67,13 @@ function parseDocument(body: string): EditorField[] {
   return exhibitionLabels.map((label, fieldIndex) => {
     const value = values.get(label) || ''
     const blocks: EditorBlock[] = parseExhibitionContent(value).map((segment, segmentIndex) => {
-      if (segment.type === 'image') {
+      if (segment.type === 'image' || segment.type === 'video') {
         return {
-          id: `field-${fieldIndex}-image-${segmentIndex}`,
-          type: 'image',
+          id: `field-${fieldIndex}-${segment.type}-${segmentIndex}`,
+          type: segment.type,
           url: segment.url,
           source: segment.url,
-          alt: segment.alt,
+          caption: segment.alt,
         }
       }
       return {
@@ -79,7 +82,7 @@ function parseDocument(body: string): EditorField[] {
         text: segment.value,
       }
     })
-    if (!blocks.length || blocks[blocks.length - 1]?.type === 'image') {
+    if (!blocks.length || blocks[blocks.length - 1]?.type !== 'text') {
       blocks.push({ id: `field-${fieldIndex}-text-end`, type: 'text', text: '' })
     }
     return { label, blocks }
@@ -89,82 +92,113 @@ function parseDocument(body: string): EditorField[] {
 function serializeDocument() {
   return `${fields.value.map((field) => {
     const value = field.blocks
-      .map((block) => block.type === 'text' ? block.text.trim() : `![${sanitizeAlt(block.alt)}](${block.source})`)
+      .map((block) => {
+        if (block.type === 'text') return block.text.trim()
+        const marker = block.type === 'image' ? '!' : '@'
+        return `${marker}[${sanitizeCaption(block.caption, block.type)}](${block.source})`
+      })
       .filter(Boolean)
       .join('\n\n')
     return `${field.label}:\n${value}`
   }).join('\n\n')}\n`
 }
 
-function sanitizeAlt(value: string) {
-  return value.replace(/[\[\]\r\n]/g, ' ').trim() || '전시 본문 이미지'
+function sanitizeCaption(value: string, type: MediaKind) {
+  return value.replace(/[\[\]\r\n]/g, ' ').trim() || (type === 'image' ? '전시 본문 이미지' : '전시 본문 영상')
 }
 
 function syncDocument() {
   emit('update:modelValue', serializeDocument())
-  emitPendingImages()
+  emitPendingMedia()
 }
 
-function emitPendingImages() {
-  const images = fields.value.flatMap(field => field.blocks
-    .filter((block): block is ImageBlock => block.type === 'image' && Boolean(block.file))
-    .map(block => ({ id: block.id, file: block.file! })))
-  emit('pending-images', images)
+function emitPendingMedia() {
+  const media = fields.value.flatMap(field => field.blocks
+    .filter((block): block is MediaBlock => block.type !== 'text' && Boolean(block.file))
+    .map(block => ({ id: block.id, type: block.type, file: block.file! })))
+  emit('pending-media', media)
 }
 
 function rememberCursor(block: TextBlock, event: Event) {
+  activeTextID.value = block.id
   cursorByBlock.set(block.id, (event.target as HTMLTextAreaElement).selectionStart)
 }
 
-function imageCount() {
-  return fields.value.reduce((count, field) => count + field.blocks.filter(block => block.type === 'image').length, 0)
+function locateInsertionTarget() {
+  for (let fieldIndex = 0; fieldIndex < fields.value.length; fieldIndex++) {
+    const blockIndex = fields.value[fieldIndex]?.blocks.findIndex(block => block.id === activeTextID.value) ?? -1
+    if (blockIndex >= 0) return { fieldIndex, blockIndex }
+  }
+
+  const fieldIndex = Math.max(0, exhibitionLabels.indexOf('전시내용'))
+  const blocks = fields.value[fieldIndex]?.blocks || []
+  const blockIndex = Math.max(0, blocks.findLastIndex(block => block.type === 'text'))
+  const block = blocks[blockIndex]
+  if (block?.type === 'text') activeTextID.value = block.id
+  return { fieldIndex, blockIndex }
 }
 
-async function insertImage(fieldIndex: number, blockIndex: number, event: Event) {
+const activeFieldLabel = computed(() => {
+  const { fieldIndex } = locateInsertionTarget()
+  return fields.value[fieldIndex]?.label || '전시내용'
+})
+
+function mediaCount(type?: MediaKind) {
+  return fields.value.reduce((count, field) => count + field.blocks.filter(block => block.type !== 'text' && (!type || block.type === type)).length, 0)
+}
+
+function validateMedia(file: File, type: MediaKind) {
+  if (type === 'image') {
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+      return 'JPG, PNG, WebP 또는 GIF 이미지만 넣을 수 있습니다.'
+    }
+    if (file.size > 8 * 1024 * 1024) return '이미지는 장당 8MB 이하로 선택해 주세요.'
+  } else {
+    if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(file.type)) {
+      return 'MP4, WebM 또는 MOV 영상만 넣을 수 있습니다.'
+    }
+    if (file.size > 30 * 1024 * 1024) return '영상은 한 개당 30MB 이하로 선택해 주세요.'
+    if (mediaCount('video') >= 3) return '영상은 게시글당 최대 3개까지 넣을 수 있습니다.'
+  }
+  if (mediaCount() >= 6) return '이미지와 영상은 합해서 최대 6개까지 넣을 수 있습니다.'
+  return ''
+}
+
+async function insertMedia(type: MediaKind, event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
+  menuOpen.value = false
   if (!file) return
-  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
-    emit('notice', 'JPG, PNG, WebP 또는 GIF 이미지만 넣을 수 있습니다.')
-    return
-  }
-  if (file.size > 8 * 1024 * 1024) {
-    emit('notice', '본문 이미지는 장당 8MB 이하로 선택해 주세요.')
-    return
-  }
-  if (imageCount() >= 6) {
-    emit('notice', '본문 이미지는 게시글당 최대 6장까지 넣을 수 있습니다.')
+
+  const validationMessage = validateMedia(file, type)
+  if (validationMessage) {
+    emit('notice', validationMessage)
     return
   }
 
+  const { fieldIndex, blockIndex } = locateInsertionTarget()
   const field = fields.value[fieldIndex]
   const textBlock = field?.blocks[blockIndex]
   if (!field || !textBlock || textBlock.type !== 'text') return
 
-  uploadingBlockID.value = textBlock.id
+  uploading.value = true
   emit('uploading', true)
   try {
     const cursor = Math.min(cursorByBlock.get(textBlock.id) ?? textBlock.text.length, textBlock.text.length)
-    const imageID = newID('inline')
-    let imageBlock: ImageBlock
-    if (props.uploadImage) {
-      const uploaded = await props.uploadImage(file)
-      imageBlock = {
-        id: imageID,
-        type: 'image',
-        url: uploaded.url,
-        source: uploaded.url,
-        alt: '',
-      }
+    const mediaID = newID(type === 'image' ? 'inline' : 'video')
+    let mediaBlock: MediaBlock
+    if (props.uploadMedia) {
+      const uploaded = await props.uploadMedia(file, type)
+      mediaBlock = { id: mediaID, type, url: uploaded.url, source: uploaded.url, caption: '' }
     } else {
       const localURL = URL.createObjectURL(file)
-      imageBlock = {
-        id: imageID,
-        type: 'image',
+      mediaBlock = {
+        id: mediaID,
+        type,
         url: localURL,
-        source: `pov-inline://${imageID}`,
-        alt: '',
+        source: type === 'image' ? `pov-inline://${mediaID}` : `pov-video://${mediaID}`,
+        caption: '',
         file,
         localURL: true,
       }
@@ -172,18 +206,20 @@ async function insertImage(fieldIndex: number, blockIndex: number, event: Event)
 
     const before: TextBlock = { ...textBlock, text: textBlock.text.slice(0, cursor) }
     const after: TextBlock = { id: newID('text'), type: 'text', text: textBlock.text.slice(cursor) }
-    field.blocks.splice(blockIndex, 1, before, imageBlock, after)
+    field.blocks.splice(blockIndex, 1, before, mediaBlock, after)
+    activeTextID.value = after.id
+    cursorByBlock.set(after.id, 0)
     syncDocument()
-    emit('notice', '선택한 글 위치에 이미지를 넣었습니다.')
+    emit('notice', `선택한 글 위치에 ${type === 'image' ? '이미지' : '영상'}를 넣었습니다.`)
   } catch {
-    emit('notice', '본문 이미지를 올리지 못했습니다. 잠시 후 다시 시도해 주세요.')
+    emit('notice', `${type === 'image' ? '이미지' : '영상'}를 올리지 못했습니다. 잠시 후 다시 시도해 주세요.`)
   } finally {
-    uploadingBlockID.value = ''
+    uploading.value = false
     emit('uploading', false)
   }
 }
 
-function moveImage(fieldIndex: number, blockIndex: number, direction: -1 | 1) {
+function moveMedia(fieldIndex: number, blockIndex: number, direction: -1 | 1) {
   const blocks = fields.value[fieldIndex]?.blocks
   const target = blockIndex + direction
   if (!blocks || target < 0 || target >= blocks.length) return
@@ -193,104 +229,159 @@ function moveImage(fieldIndex: number, blockIndex: number, direction: -1 | 1) {
   syncDocument()
 }
 
-function removeImage(fieldIndex: number, blockIndex: number) {
+function removeMedia(fieldIndex: number, blockIndex: number) {
   const blocks = fields.value[fieldIndex]?.blocks
   const block = blocks?.[blockIndex]
-  if (!blocks || !block || block.type !== 'image') return
+  if (!blocks || !block || block.type === 'text') return
   if (block.localURL) URL.revokeObjectURL(block.url)
   blocks.splice(blockIndex, 1)
   if (!blocks.some(item => item.type === 'text')) {
     blocks.push({ id: newID('text'), type: 'text', text: '' })
   }
   syncDocument()
-  emit('notice', '본문 이미지를 삭제했습니다.')
+  emit('notice', `본문 ${block.type === 'image' ? '이미지' : '영상'}를 삭제했습니다.`)
 }
 
-function useAsCover(block: ImageBlock) {
-  emit('set-cover', { id: block.id, url: block.url, file: block.file })
-  emit('notice', '이 이미지를 대표 사진으로 지정했습니다.')
-}
-
-function releaseLocalImages() {
+function releaseLocalMedia() {
   for (const field of fields.value) {
     for (const block of field.blocks) {
-      if (block.type === 'image' && block.localURL) URL.revokeObjectURL(block.url)
+      if (block.type !== 'text' && block.localURL) URL.revokeObjectURL(block.url)
     }
   }
 }
 
+function updateDockPosition() {
+  if (!editorRoot.value || !import.meta.client) return
+  const rect = editorRoot.value.getBoundingClientRect()
+  dockLeft.value = Math.max(18, Math.min(window.innerWidth - 70, rect.right - 58))
+}
+
+function closeMenuFromOutside(event: PointerEvent) {
+  if (!mediaDock.value?.contains(event.target as Node)) menuOpen.value = false
+}
+
+function closeMenuFromEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape') menuOpen.value = false
+}
+
 watch(() => props.modelValue, (value) => {
   if (value === serializeDocument()) return
-  releaseLocalImages()
+  releaseLocalMedia()
   fields.value = parseDocument(value)
   cursorByBlock.clear()
-  emitPendingImages()
+  activeTextID.value = ''
+  emitPendingMedia()
 })
 
-onBeforeUnmount(releaseLocalImages)
+onMounted(() => {
+  if (!editorRoot.value) return
+  editorObserver = new IntersectionObserver(([entry]) => {
+    dockVisible.value = Boolean(entry?.isIntersecting)
+    updateDockPosition()
+  })
+  editorObserver.observe(editorRoot.value)
+  window.addEventListener('resize', updateDockPosition)
+  window.addEventListener('scroll', updateDockPosition, { passive: true })
+  document.addEventListener('pointerdown', closeMenuFromOutside)
+  document.addEventListener('keydown', closeMenuFromEscape)
+  updateDockPosition()
+})
+
+onBeforeUnmount(() => {
+  releaseLocalMedia()
+  editorObserver?.disconnect()
+  if (import.meta.client) {
+    window.removeEventListener('resize', updateDockPosition)
+    window.removeEventListener('scroll', updateDockPosition)
+    document.removeEventListener('pointerdown', closeMenuFromOutside)
+    document.removeEventListener('keydown', closeMenuFromEscape)
+  }
+})
 </script>
 
 <template>
-  <div class="block-editor">
+  <div ref="editorRoot" class="block-editor">
     <section v-for="(field, fieldIndex) in fields" :key="field.label" class="block-field">
       <label class="block-field-label">{{ field.label }}</label>
 
       <template v-for="(block, blockIndex) in field.blocks" :key="block.id">
-        <div v-if="block.type === 'text'" class="block-text-wrap">
-          <textarea
-            v-model="block.text"
-            class="block-text"
-            :aria-label="`${field.label} 내용`"
-            rows="2"
-            spellcheck="true"
-            @input="syncDocument"
-            @click="rememberCursor(block, $event)"
-            @keyup="rememberCursor(block, $event)"
-            @select="rememberCursor(block, $event)"
-          />
-          <div class="block-insert-line">
-            <span />
-            <label class="block-add-image" :aria-label="`${field.label} 현재 위치에 이미지 넣기`">
-              <LoaderCircle v-if="uploadingBlockID === block.id" :size="16" class="spin" />
-              <Plus v-else :size="16" />
-              <span>이미지</span>
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                :disabled="Boolean(uploadingBlockID)"
-                @change="insertImage(fieldIndex, blockIndex, $event)"
-              >
-            </label>
-            <span />
-          </div>
-        </div>
+        <textarea
+          v-if="block.type === 'text'"
+          v-model="block.text"
+          class="block-text"
+          :aria-label="`${field.label} 내용`"
+          rows="2"
+          spellcheck="true"
+          @input="syncDocument"
+          @focus="rememberCursor(block, $event)"
+          @click="rememberCursor(block, $event)"
+          @keyup="rememberCursor(block, $event)"
+          @select="rememberCursor(block, $event)"
+        />
 
-        <figure v-else class="block-image">
-          <img :src="block.url" :alt="block.alt">
+        <figure v-else class="block-media">
+          <img v-if="block.type === 'image'" :src="block.url" :alt="block.caption">
+          <video v-else :src="block.url" controls playsinline preload="metadata" />
           <input
-            v-model="block.alt"
+            v-model="block.caption"
             class="block-caption"
-            aria-label="이미지 설명"
-            placeholder="이미지 설명"
+            :aria-label="`${block.type === 'image' ? '이미지' : '영상'} 설명`"
+            :placeholder="`${block.type === 'image' ? '이미지' : '영상'} 설명`"
             @input="syncDocument"
           >
-          <div class="block-image-actions">
-            <button type="button" :disabled="blockIndex === 0" aria-label="이미지 위로 이동" @click="moveImage(fieldIndex, blockIndex, -1)">
+          <div class="block-media-actions">
+            <button type="button" :disabled="blockIndex === 0" :aria-label="`${block.type === 'image' ? '이미지' : '영상'} 위로 이동`" @click="moveMedia(fieldIndex, blockIndex, -1)">
               <ChevronUp :size="15" /> 위
             </button>
-            <button type="button" :disabled="blockIndex === field.blocks.length - 1" aria-label="이미지 아래로 이동" @click="moveImage(fieldIndex, blockIndex, 1)">
+            <button type="button" :disabled="blockIndex === field.blocks.length - 1" :aria-label="`${block.type === 'image' ? '이미지' : '영상'} 아래로 이동`" @click="moveMedia(fieldIndex, blockIndex, 1)">
               <ChevronDown :size="15" /> 아래
             </button>
-            <button type="button" aria-label="대표 이미지로 지정" @click="useAsCover(block)">
-              <Star :size="15" /> 대표
-            </button>
-            <button type="button" aria-label="본문 이미지 삭제" @click="removeImage(fieldIndex, blockIndex)">
+            <button type="button" :aria-label="`본문 ${block.type === 'image' ? '이미지' : '영상'} 삭제`" @click="removeMedia(fieldIndex, blockIndex)">
               <Trash2 :size="15" /> 삭제
             </button>
           </div>
         </figure>
       </template>
     </section>
+
+    <Transition name="dock-fade">
+      <div
+        v-if="dockVisible"
+        ref="mediaDock"
+        class="media-dock"
+        :style="{ left: `${dockLeft}px` }"
+        @pointerdown.stop
+      >
+        <Transition name="menu-fade">
+          <div v-if="menuOpen" class="media-menu" role="menu" aria-label="본문 미디어 넣기">
+            <small>{{ activeFieldLabel }}의 현재 커서 위치</small>
+            <label role="menuitem">
+              <ImageIcon :size="17" />
+              <span>이미지 넣기</span>
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" :disabled="uploading" @change="insertMedia('image', $event)">
+            </label>
+            <label role="menuitem">
+              <Video :size="17" />
+              <span>영상 넣기</span>
+              <input type="file" accept="video/mp4,video/webm,video/quicktime,.mov" :disabled="uploading" @change="insertMedia('video', $event)">
+            </label>
+          </div>
+        </Transition>
+
+        <button
+          class="media-dock-button"
+          type="button"
+          :aria-label="menuOpen ? '미디어 메뉴 닫기' : '현재 커서 위치에 이미지 또는 영상 넣기'"
+          :aria-expanded="menuOpen"
+          :disabled="uploading"
+          @click="menuOpen = !menuOpen"
+        >
+          <LoaderCircle v-if="uploading" :size="21" class="spin" />
+          <X v-else-if="menuOpen" :size="21" />
+          <Plus v-else :size="23" />
+        </button>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -301,7 +392,7 @@ onBeforeUnmount(releaseLocalImages)
 }
 
 .block-field {
-  padding: 22px clamp(20px, 4vw, 42px) 15px;
+  padding: 22px clamp(20px, 4vw, 42px) 18px;
   border-right: 1px solid var(--line-strong);
   border-bottom: 1px solid var(--line);
   border-left: 1px solid var(--line-strong);
@@ -317,7 +408,8 @@ onBeforeUnmount(releaseLocalImages)
 
 .block-text {
   width: 100%;
-  min-height: 54px;
+  min-height: 58px;
+  display: block;
   resize: vertical;
   padding: 0;
   border: 0;
@@ -333,59 +425,23 @@ onBeforeUnmount(releaseLocalImages)
   color: var(--ink);
 }
 
-.block-insert-line {
-  min-height: 34px;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 10px;
-}
-
-.block-insert-line > span {
-  height: 1px;
-  background: var(--line);
-}
-
-.block-add-image {
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 11px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 750;
-  cursor: pointer;
-  transition: border-color var(--motion-quick), color var(--motion-quick);
-}
-
-.block-add-image:hover {
-  border-color: var(--ink);
-  color: var(--ink);
-}
-
-.block-add-image input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
-
-.block-image {
+.block-media {
   margin: 12px 0 20px;
   padding: 14px;
   border: 1px solid var(--line-strong);
   background: var(--canvas);
 }
 
-.block-image img {
+.block-media img,
+.block-media video {
   width: 100%;
   max-height: 440px;
   display: block;
   object-fit: contain;
+  background: #111;
+}
+
+.block-media img {
   background: var(--paper);
 }
 
@@ -405,14 +461,14 @@ onBeforeUnmount(releaseLocalImages)
   border-color: var(--ink);
 }
 
-.block-image-actions {
+.block-media-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 12px;
 }
 
-.block-image-actions button {
+.block-media-actions button {
   min-height: 34px;
   display: inline-flex;
   align-items: center;
@@ -426,25 +482,127 @@ onBeforeUnmount(releaseLocalImages)
   cursor: pointer;
 }
 
-.block-image-actions button:hover:not(:disabled) {
+.block-media-actions button:hover:not(:disabled) {
   border-color: var(--ink);
   color: var(--ink);
 }
 
-.block-image-actions button:disabled {
+.block-media-actions button:disabled {
   opacity: 0.35;
   cursor: default;
 }
 
+.media-dock {
+  position: fixed;
+  bottom: max(22px, calc(env(safe-area-inset-bottom) + 14px));
+  z-index: 70;
+}
+
+.media-dock-button {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 10px 30px rgba(36, 31, 22, 0.12);
+  cursor: pointer;
+  transition: transform var(--motion-quick), background var(--motion-quick), color var(--motion-quick);
+}
+
+.media-dock-button:hover:not(:disabled),
+.media-dock-button[aria-expanded='true'] {
+  transform: translateY(-1px);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.media-menu {
+  width: 194px;
+  position: absolute;
+  right: 0;
+  bottom: 64px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  box-shadow: 0 16px 44px rgba(36, 31, 22, 0.12);
+}
+
+.media-menu small {
+  display: block;
+  padding: 13px 15px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.media-menu label {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 15px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.media-menu label:last-child {
+  border-bottom: 0;
+}
+
+.media-menu label:hover {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.media-menu input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.dock-fade-enter-active,
+.dock-fade-leave-active,
+.menu-fade-enter-active,
+.menu-fade-leave-active {
+  transition: opacity var(--motion-quick), transform var(--motion-quick);
+}
+
+.dock-fade-enter-from,
+.dock-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.menu-fade-enter-from,
+.menu-fade-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
 @media (max-width: 560px) {
   .block-field {
-    padding: 20px 18px 13px;
+    padding: 20px 18px 16px;
   }
 
-  .block-image {
+  .block-media {
     margin-right: -4px;
     margin-left: -4px;
     padding: 10px;
+  }
+
+  .media-dock-button {
+    width: 50px;
+    height: 50px;
   }
 }
 </style>

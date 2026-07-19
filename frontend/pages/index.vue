@@ -239,6 +239,16 @@ onMounted(loadPosts)
                     >
                     <figcaption v-if="segment.alt && segment.alt !== '전시 본문 이미지'">{{ segment.alt }}</figcaption>
                   </figure>
+                  <figure v-else-if="segment.type === 'video'" class="detail-inline-figure">
+                    <video
+                      :src="segment.url"
+                      class="detail-inline-video"
+                      controls
+                      playsinline
+                      preload="metadata"
+                    />
+                    <figcaption v-if="segment.alt && segment.alt !== '전시 본문 영상'">{{ segment.alt }}</figcaption>
+                  </figure>
                   <span v-else class="detail-inline-text">{{ segment.value }}</span>
                 </template>
               </dd>

@@ -743,6 +743,13 @@ textarea:focus-visible {
   background: var(--paper);
 }
 
+.detail-inline-video {
+  width: 100%;
+  max-height: 560px;
+  display: block;
+  background: #111;
+}
+
 .detail-inline-figure {
   display: grid;
   gap: 8px;
@@ -1251,23 +1258,6 @@ textarea:focus-visible {
   line-height: 1.7;
 }
 
-.submission-image-picker {
-  min-height: 52px;
-  margin: 64px 0 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: var(--paper);
-  color: var(--ink-soft);
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.submission-image-picker input,
 .submission-honeypot {
   position: absolute;
   width: 1px;
@@ -1276,17 +1266,8 @@ textarea:focus-visible {
   clip: rect(0 0 0 0);
 }
 
-.submission-image-preview {
-  width: 100%;
-  max-height: 360px;
-  display: block;
-  margin-bottom: 28px;
-  border: 1px solid var(--line);
-  object-fit: cover;
-}
-
 .submission-body-heading {
-  margin: 28px 0 12px;
+  margin: 64px 0 12px;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;

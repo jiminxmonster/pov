@@ -26,6 +26,7 @@ export interface ExhibitionField {
 export type ExhibitionContentSegment =
   | { type: 'text', value: string }
   | { type: 'image', url: string, alt: string }
+  | { type: 'video', url: string, alt: string }
 
 export function parseExhibitionFields(body: string): ExhibitionField[] {
   const values = new Map<string, string>()
@@ -51,19 +52,19 @@ export function parseExhibitionFields(body: string): ExhibitionField[] {
 
 export function parseExhibitionContent(value: string): ExhibitionContentSegment[] {
   const segments: ExhibitionContentSegment[] = []
-  const imagePattern = /!\[([^\]]*)\]\(([^)\s]+)\)/g
+  const mediaPattern = /([!@])\[([^\]]*)\]\(([^)\s]+)\)/g
   let cursor = 0
 
-  for (const match of value.matchAll(imagePattern)) {
+  for (const match of value.matchAll(mediaPattern)) {
     const index = match.index ?? 0
-    const url = match[2]?.trim() || ''
+    const url = match[3]?.trim() || ''
     if (!isSafeImageURL(url)) continue
 
     pushTextSegment(segments, value.slice(cursor, index))
     segments.push({
-      type: 'image',
+      type: match[1] === '!' ? 'image' : 'video',
       url,
-      alt: match[1]?.trim() || '전시 본문 이미지',
+      alt: match[2]?.trim() || (match[1] === '!' ? '전시 본문 이미지' : '전시 본문 영상'),
     })
     cursor = index + match[0].length
   }

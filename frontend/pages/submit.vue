@@ -1,14 +1,10 @@
 <script setup lang="ts">
-import { ArrowLeft, Check, ImagePlus, LoaderCircle, Send } from '@lucide/vue'
+import { ArrowLeft, Check, LoaderCircle, Send } from '@lucide/vue'
 import { exhibitionTemplate } from '~/utils/exhibition'
 
 const config = useRuntimeConfig()
 const body = ref(exhibitionTemplate)
-const image = ref<File | null>(null)
-const imagePreview = ref('')
-const imagePreviewOwned = ref(false)
-const coverInlineID = ref('')
-const pendingImages = ref<Array<{ id: string, file: File }>>([])
+const pendingMedia = ref<Array<{ id: string, type: 'image' | 'video', file: File }>>([])
 const website = ref('')
 const submitting = ref(false)
 const editorUploading = ref(false)
@@ -18,45 +14,8 @@ const completed = ref(false)
 
 useSeoMeta({ title: '전시 제보 · 전지적관람시점', robots: 'noindex, nofollow' })
 
-function selectImage(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0] || null
-  if (file && !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
-    editorNotice.value = 'JPG, PNG, WebP 또는 GIF 이미지만 올릴 수 있습니다.'
-    input.value = ''
-    return
-  }
-  if (file && file.size > 8 * 1024 * 1024) {
-    editorNotice.value = '대표 이미지는 8MB 이하로 선택해 주세요.'
-    input.value = ''
-    return
-  }
-  releaseOwnedPreview()
-  image.value = file
-  coverInlineID.value = ''
-  imagePreview.value = file ? URL.createObjectURL(file) : ''
-  imagePreviewOwned.value = Boolean(file)
-}
-
-function releaseOwnedPreview() {
-  if (imagePreview.value && imagePreviewOwned.value) URL.revokeObjectURL(imagePreview.value)
-  imagePreviewOwned.value = false
-}
-
-function updatePendingImages(images: Array<{ id: string, file: File }>) {
-  pendingImages.value = images
-  if (coverInlineID.value && !images.some(image => image.id === coverInlineID.value)) {
-    coverInlineID.value = ''
-    imagePreview.value = ''
-  }
-}
-
-function useInlineImageAsCover(inlineImage: { id: string, url: string, file?: File }) {
-  if (!inlineImage.file) return
-  releaseOwnedPreview()
-  image.value = null
-  coverInlineID.value = inlineImage.id
-  imagePreview.value = inlineImage.url
+function updatePendingMedia(media: Array<{ id: string, type: 'image' | 'video', file: File }>) {
+  pendingMedia.value = media
 }
 
 async function submitExhibition() {
@@ -66,10 +25,8 @@ async function submitExhibition() {
     const form = new FormData()
     form.append('body_markdown', body.value)
     form.append('website', website.value)
-    if (image.value) form.append('image', image.value)
-    if (coverInlineID.value) form.append('cover_inline_id', coverInlineID.value)
-    for (const inlineImage of pendingImages.value) {
-      form.append(`inline_image_${inlineImage.id}`, inlineImage.file, inlineImage.file.name)
+    for (const media of pendingMedia.value) {
+      form.append(`inline_${media.type}_${media.id}`, media.file, media.file.name)
     }
     await $fetch(`${config.public.apiBase}/submissions`, {
       method: 'POST',
@@ -83,9 +40,6 @@ async function submitExhibition() {
   }
 }
 
-onBeforeUnmount(() => {
-  releaseOwnedPreview()
-})
 </script>
 
 <template>
@@ -110,22 +64,13 @@ onBeforeUnmount(() => {
         <p>비어 있는 항목은 그대로 두어도 됩니다. 전시명과 장소는 꼭 적어주세요.</p>
       </div>
 
-      <label class="submission-image-picker">
-        <ImagePlus :size="18" />
-        <span>{{ image ? image.name : '대표 사진 선택 · 선택사항' }}</span>
-        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" @change="selectImage">
-      </label>
-
-      <img v-if="imagePreview" :src="imagePreview" alt="선택한 대표 사진 미리보기" class="submission-image-preview">
-
       <div class="submission-body-heading">
         <span>전시 정보</span>
-        <small>글 중간의 ‘이미지’를 누르면 그 자리에 사진이 들어갑니다.</small>
+        <small>글을 쓰다 따라다니는 +를 눌러 현재 커서에 이미지나 영상을 넣으세요.</small>
       </div>
       <ExhibitionBlockEditor
         v-model="body"
-        @pending-images="updatePendingImages"
-        @set-cover="useInlineImageAsCover"
+        @pending-media="updatePendingMedia"
         @uploading="editorUploading = $event"
         @notice="editorNotice = $event"
       />
@@ -135,7 +80,7 @@ onBeforeUnmount(() => {
         <input v-model="website" tabindex="-1" autocomplete="off">
       </label>
 
-      <p class="submission-note">{{ editorNotice || '대표 사진이 없으면 본문의 첫 이미지가 대표로 사용됩니다. 제보는 운영자 확인 후 공개됩니다.' }}</p>
+      <p class="submission-note">{{ editorNotice || '본문의 첫 이미지가 대표로 사용됩니다. 제보는 운영자 확인 후 공개됩니다.' }}</p>
       <p v-if="errorMessage" class="form-error" role="alert">{{ errorMessage }}</p>
 
       <button class="pill-button submission-button" type="submit" :disabled="submitting || editorUploading">
