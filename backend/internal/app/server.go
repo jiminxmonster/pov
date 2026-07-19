@@ -242,6 +242,12 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Query = strings.TrimSpace(input.Query)
 	if input.Query != "" {
+		if wizard, ok := initialWizardDecision(input.Query, input.History); ok {
+			writeJSON(w, http.StatusOK, searchResponse{
+				Interpretation: wizard.Answer, Mode: wizard.Mode, Question: wizard.Question, Options: wizard.Options,
+			})
+			return
+		}
 		settings, configured, settingsErr := s.loadNVIDIAAISettings(r.Context())
 		if settingsErr == nil && configured && s.allowAIRequest(r) {
 			candidates, candidateErr := s.queryPosts(r.Context(), "", "published", input.BBox, 80)

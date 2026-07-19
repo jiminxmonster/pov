@@ -319,7 +319,7 @@ func TestNVIDIAChatClient(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatalf("decode NVIDIA request: %v", err)
 		}
-		if request.Model != defaultNVIDIAModel || request.MaxTokens != 32 || request.ReasoningBudget != 0 {
+		if request.Model != defaultNVIDIAModel || request.MaxTokens != 32 || request.ReasoningBudget != 0 || request.ChatTemplateKwargs == nil || request.ChatTemplateKwargs.EnableThinking {
 			t.Fatalf("unexpected NVIDIA request: %#v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -341,5 +341,21 @@ func TestNVIDIAReasoningBudgetLeavesRoomForStructuredAnswer(t *testing.T) {
 	}
 	if got := nvidiaReasoningBudget("qwen/qwen3.5-122b-a10b", 900); got != 0 {
 		t.Fatalf("reasoning budget should be omitted for other model families, got %d", got)
+	}
+}
+
+func TestInitialWizardAndInformationRouting(t *testing.T) {
+	decision, ok := initialWizardDecision("전시 추천해줘", nil)
+	if !ok || decision.Mode != "wizard" || len(decision.Options) < 2 {
+		t.Fatalf("expected initial wizard, got %#v", decision)
+	}
+	if _, ok := initialWizardDecision("성수에서 연인과 볼 전시 추천해줘", nil); ok {
+		t.Fatal("clear recommendation should not open the wizard")
+	}
+	if !isInformationQuery("덕수궁 전시 관람료와 주차 정보를 알려줘") {
+		t.Fatal("explicit exhibition information request should stay in chat")
+	}
+	if isInformationQuery("주차 가능한 전시를 추천해줘") {
+		t.Fatal("recommendation request should remain eligible for the map")
 	}
 }

@@ -38,12 +38,17 @@ type nvidiaAISettingsResponse struct {
 }
 
 type nvidiaChatRequest struct {
-	Model           string              `json:"model"`
-	Messages        []nvidiaChatMessage `json:"messages"`
-	Temperature     float64             `json:"temperature"`
-	MaxTokens       int                 `json:"max_tokens"`
-	ReasoningBudget int                 `json:"reasoning_budget,omitempty"`
-	Stream          bool                `json:"stream"`
+	Model              string                    `json:"model"`
+	Messages           []nvidiaChatMessage       `json:"messages"`
+	Temperature        float64                   `json:"temperature"`
+	MaxTokens          int                       `json:"max_tokens"`
+	ReasoningBudget    int                       `json:"reasoning_budget,omitempty"`
+	ChatTemplateKwargs *nvidiaChatTemplateKwargs `json:"chat_template_kwargs,omitempty"`
+	Stream             bool                      `json:"stream"`
+}
+
+type nvidiaChatTemplateKwargs struct {
+	EnableThinking bool `json:"enable_thinking"`
 }
 
 type nvidiaChatMessage struct {
@@ -294,6 +299,9 @@ chat이면 answer에 자연스러운 한국어 2~5문장으로 직접 답하고 
 		return nvidiaCuration{}, err
 	}
 	curation.Mode = normalizedAIMode(curation.Mode)
+	if isInformationQuery(query) {
+		curation.Mode = "chat"
+	}
 	recommendationLimit := 12
 	if curation.Mode == "chat" {
 		recommendationLimit = 6
@@ -361,12 +369,8 @@ func normalizedAIOptions(options []string) []string {
 func fallbackAIDecision(query string, history []aiConversationTurn, posts []Post) nvidiaCuration {
 	query = strings.TrimSpace(query)
 	lower := strings.ToLower(query)
-	if len(history) == 0 && containsAny(lower, "추천해", "추천 해", "뭐 볼", "무엇을 볼", "어디 갈", "볼만한 전시") &&
-		!containsAny(lower, "연인", "데이트", "가족", "아이", "혼자", "무료", "주차", "성수", "종로", "강남", "홍대", "이번 주", "주말", "오늘") {
-		return nvidiaCuration{
-			Mode: "wizard", Answer: "조금만 더 알면 지금 마음에 가까운 전시를 고를 수 있어요.",
-			Question: "이번 관람은 누구와 함께하시나요?", Options: []string{"혼자 천천히", "연인과 함께", "가족과 함께", "친구와 함께"},
-		}
+	if wizard, ok := initialWizardDecision(query, history); ok {
+		return wizard
 	}
 
 	ids := make([]string, 0, min(len(posts), 12))
@@ -376,7 +380,7 @@ func fallbackAIDecision(query string, history []aiConversationTurn, posts []Post
 			break
 		}
 	}
-	if containsAny(lower, "알려", "어떻게", "언제", "어디", "관람료", "주차", "도슨트", "링크", "홈페이지", "정보", "설명") {
+	if isInformationQuery(lower) {
 		answer := interpretQuery(query)
 		if len(posts) == 0 {
 			answer = "등록된 전시 정보에서는 바로 확인할 내용을 찾지 못했어요. 전시명이나 지역을 조금 더 구체적으로 알려주세요."
@@ -384,6 +388,24 @@ func fallbackAIDecision(query string, history []aiConversationTurn, posts []Post
 		return nvidiaCuration{Mode: "chat", Answer: answer, RecommendedIDs: ids[:min(len(ids), 6)]}
 	}
 	return nvidiaCuration{Mode: "map", Answer: interpretQuery(query), RecommendedIDs: ids}
+}
+
+func initialWizardDecision(query string, history []aiConversationTurn) (nvidiaCuration, bool) {
+	lower := strings.ToLower(strings.TrimSpace(query))
+	if len(history) != 0 || !containsAny(lower, "추천해", "추천 해", "뭐 볼", "무엇을 볼", "어디 갈", "볼만한 전시") ||
+		containsAny(lower, "연인", "데이트", "가족", "아이", "혼자", "무료", "주차", "성수", "종로", "강남", "홍대", "이번 주", "주말", "오늘") {
+		return nvidiaCuration{}, false
+	}
+	return nvidiaCuration{
+		Mode: "wizard", Answer: "조금만 더 알면 지금 마음에 가까운 전시를 고를 수 있어요.",
+		Question: "이번 관람은 누구와 함께하시나요?", Options: []string{"혼자 천천히", "연인과 함께", "가족과 함께", "친구와 함께"},
+	}, true
+}
+
+func isInformationQuery(query string) bool {
+	lower := strings.ToLower(strings.TrimSpace(query))
+	return containsAny(lower, "알려", "어떻게", "언제", "어디", "관람료", "주차", "도슨트", "링크", "홈페이지", "정보", "설명") &&
+		!containsAny(lower, "추천", "찾아", "골라", "볼만한")
 }
 
 func containsAny(value string, needles ...string) bool {
@@ -420,7 +442,8 @@ func callNVIDIAChatAtEndpoint(ctx context.Context, endpoint string, settings nvi
 	settings = normalizeNVIDIAAISettings(settings)
 	payload, err := json.Marshal(nvidiaChatRequest{
 		Model: settings.Model, Messages: messages, Temperature: 0.2, MaxTokens: maxTokens,
-		ReasoningBudget: nvidiaReasoningBudget(settings.Model, maxTokens), Stream: false,
+		ReasoningBudget:    nvidiaReasoningBudget(settings.Model, maxTokens),
+		ChatTemplateKwargs: nvidiaChatTemplateSettings(settings.Model), Stream: false,
 	})
 	if err != nil {
 		return "", err
@@ -459,6 +482,13 @@ func nvidiaReasoningBudget(model string, maxTokens int) int {
 		return 0
 	}
 	return min(256, maxTokens/4)
+}
+
+func nvidiaChatTemplateSettings(model string) *nvidiaChatTemplateKwargs {
+	if !strings.Contains(strings.ToLower(model), "nemotron-3-") {
+		return nil
+	}
+	return &nvidiaChatTemplateKwargs{EnableThinking: false}
 }
 
 func parseNVIDIACuration(content string) (nvidiaCuration, error) {
