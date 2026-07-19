@@ -386,3 +386,9 @@ func TestConversationSearchKeepsRecommendationConstraints(t *testing.T) {
 		t.Fatalf("expected hard recommendation terms only, got %#v", directTerms)
 	}
 }
+
+func TestSanitizeAITextRemovesReasoningTags(t *testing.T) {
+	if got := sanitizeAIText("<think>내부 추론</think>최종 답변</think>", 100); got != "최종 답변" {
+		t.Fatalf("unexpected sanitized answer: %q", got)
+	}
+}

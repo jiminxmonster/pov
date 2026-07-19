@@ -307,7 +307,10 @@ chat이면 answer에 자연스러운 한국어 2~5문장으로 직접 답하고 
 		recommendationLimit = 6
 	}
 	curation.RecommendedIDs = validRecommendedIDs(curation.RecommendedIDs, posts, recommendationLimit)
-	curation.Question = strings.TrimSpace(curation.Question)
+	if !isInformationQuery(query) && conversationRequestsRecommendation(query, history) && len(curation.RecommendedIDs) > 0 {
+		curation.Mode = "map"
+	}
+	curation.Question = sanitizeAIText(curation.Question, 180)
 	curation.Options = normalizedAIOptions(curation.Options)
 	if curation.Mode == "map" && len(curation.RecommendedIDs) == 0 {
 		return nvidiaCuration{}, errors.New("NVIDIA returned no valid exhibition IDs")
@@ -315,7 +318,7 @@ chat이면 answer에 자연스러운 한국어 2~5문장으로 직접 답하고 
 	if curation.Mode == "wizard" && (curation.Question == "" || len(curation.Options) < 2) {
 		return nvidiaCuration{}, errors.New("NVIDIA returned an incomplete wizard question")
 	}
-	curation.Answer = strings.TrimSpace(curation.Answer)
+	curation.Answer = sanitizeAIText(curation.Answer, 700)
 	if curation.Answer == "" {
 		curation.Answer = "질문과 가까운 전시를 추천 순서대로 모았습니다."
 	}
@@ -353,7 +356,7 @@ func normalizedAIOptions(options []string) []string {
 	result := make([]string, 0, min(len(options), 4))
 	seen := make(map[string]bool, len(options))
 	for _, option := range options {
-		option = strings.TrimSpace(limitRunes(option, 40))
+		option = sanitizeAIText(option, 40)
 		if option == "" || seen[option] {
 			continue
 		}
@@ -432,6 +435,25 @@ func containsAny(value string, needles ...string) bool {
 		}
 	}
 	return false
+}
+
+func sanitizeAIText(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	for {
+		start := strings.Index(value, "<think>")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(value[start+len("<think>"):], "</think>")
+		if end < 0 {
+			value = value[:start]
+			break
+		}
+		end += start + len("<think>")
+		value = value[:start] + value[end+len("</think>"):]
+	}
+	value = strings.ReplaceAll(value, "</think>", "")
+	return strings.TrimSpace(limitRunes(value, limit))
 }
 
 func sourceLinksForPosts(posts []Post) []searchLink {
