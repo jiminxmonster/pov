@@ -1,9 +1,13 @@
 package app
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +92,62 @@ func TestBasePathHelpers(t *testing.T) {
 	}
 	if got := prefixedPath("/", "/uploads/poster.png"); got != "/uploads/poster.png" {
 		t.Fatalf("unexpected root path: %q", got)
+	}
+}
+
+func TestSaveSubmissionInlineImages(t *testing.T) {
+	uploadDir := t.TempDir()
+	server := Server{config: Config{BasePath: "/pov", UploadDir: uploadDir}}
+	body := "전시명:\n여름의 표면\n\n장소:\n서울 성동구\n\n전시내용:\n이미지 앞\n\n![장면](pov-inline://inline-test-1)\n\n이미지 뒤"
+
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+	part, err := writer.CreateFormFile("inline_image_inline-test-1", "scene.png")
+	if err != nil {
+		t.Fatalf("create image part: %v", err)
+	}
+	png, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatalf("decode test image: %v", err)
+	}
+	if _, err := part.Write(png); err != nil {
+		t.Fatalf("write image part: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/pov/api/submissions", &requestBody)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	if err := request.ParseMultipartForm(8 << 20); err != nil {
+		t.Fatalf("parse multipart form: %v", err)
+	}
+	defer request.MultipartForm.RemoveAll()
+
+	resolved, urls, names, err := server.saveSubmissionInlineImages(request, body)
+	if err != nil {
+		t.Fatalf("save inline images: %v", err)
+	}
+	if len(names) != 1 || urls["inline-test-1"] == "" {
+		t.Fatalf("unexpected saved images: names=%#v urls=%#v", names, urls)
+	}
+	if strings.Contains(resolved, "pov-inline://") || !strings.Contains(resolved, urls["inline-test-1"]) {
+		t.Fatalf("inline placeholder was not resolved: %q", resolved)
+	}
+	if firstInlineImageURL(body, urls) != urls["inline-test-1"] {
+		t.Fatal("first inline image was not selected as the default cover")
+	}
+	if _, err := os.Stat(uploadDir + "/" + names[0]); err != nil {
+		t.Fatalf("saved image is missing: %v", err)
+	}
+}
+
+func TestSubmissionRejectsMissingInlineImage(t *testing.T) {
+	server := Server{config: Config{BasePath: "/pov", UploadDir: t.TempDir()}}
+	request := httptest.NewRequest(http.MethodPost, "/pov/api/submissions", nil)
+	request.MultipartForm = &multipart.Form{File: map[string][]*multipart.FileHeader{}}
+	if _, _, _, err := server.saveSubmissionInlineImages(request, "전시내용:\n![장면](pov-inline://missing)"); err == nil {
+		t.Fatal("missing inline upload must be rejected")
 	}
 }
 

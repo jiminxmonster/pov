@@ -230,13 +230,15 @@ onMounted(loadPosts)
               <dt>{{ field.label }}</dt>
               <dd>
                 <template v-for="(segment, segmentIndex) in fieldContent(field.value)" :key="`${field.label}-${segmentIndex}`">
-                  <img
-                    v-if="segment.type === 'image'"
-                    :src="segment.url"
-                    :alt="segment.alt"
-                    class="detail-inline-image"
-                    loading="lazy"
-                  >
+                  <figure v-if="segment.type === 'image'" class="detail-inline-figure">
+                    <img
+                      :src="segment.url"
+                      :alt="segment.alt"
+                      class="detail-inline-image"
+                      loading="lazy"
+                    >
+                    <figcaption v-if="segment.alt && segment.alt !== '전시 본문 이미지'">{{ segment.alt }}</figcaption>
+                  </figure>
                   <span v-else class="detail-inline-text">{{ segment.value }}</span>
                 </template>
               </dd>

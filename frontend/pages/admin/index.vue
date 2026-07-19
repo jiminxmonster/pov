@@ -6,13 +6,11 @@ import { exhibitionTemplate, parseExhibitionContent, parseExhibitionFields } fro
 const config = useRuntimeConfig()
 const router = useRouter()
 const body = ref(exhibitionTemplate)
-const documentEditor = ref<HTMLTextAreaElement | null>(null)
-const insertionCursor = ref<number | null>(null)
 const imageUrl = ref('')
 const posts = ref<ExhibitionPost[]>([])
 const saving = ref(false)
 const uploading = ref(false)
-const inlineImageUploading = ref(false)
+const editorUploading = ref(false)
 const notice = ref('')
 const publicDataKey = ref('')
 const publicDataLimit = ref(5)
@@ -30,6 +28,13 @@ const aiTesting = ref(false)
 const aiNotice = ref('')
 const previewFields = computed(() => parseExhibitionFields(body.value))
 const previewTitle = computed(() => previewFields.value.find(field => field.label === '전시명')?.value || '전시명 미리보기')
+const firstInlineImageURL = computed(() => {
+  for (const field of previewFields.value) {
+    const image = parseExhibitionContent(field.value).find(segment => segment.type === 'image')
+    if (image?.type === 'image') return image.url
+  }
+  return ''
+})
 
 interface PublicDataSettingsResponse {
   configured: boolean
@@ -196,51 +201,22 @@ async function uploadImage(event: Event) {
   }
 }
 
-function rememberEditorCursor() {
-  if (!documentEditor.value) return
-  insertionCursor.value = documentEditor.value.selectionStart
-}
-
 function previewFieldContent(value: string) {
   return parseExhibitionContent(value)
 }
 
-async function uploadInlineImage(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  uploading.value = true
-  inlineImageUploading.value = true
-  notice.value = ''
-  try {
-    const form = new FormData()
-    form.append('file', file)
-    const result = await $fetch<{ url: string }>(`${config.public.apiBase}/admin/media`, {
-      method: 'POST',
-      credentials: 'include',
-      body: form,
-    })
+async function uploadBodyImage(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return await $fetch<{ url: string }>(`${config.public.apiBase}/admin/media`, {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  })
+}
 
-    const cursor = Math.min(insertionCursor.value ?? body.value.length, body.value.length)
-    const before = body.value.slice(0, cursor)
-    const after = body.value.slice(cursor)
-    const leadingBreak = before && !before.endsWith('\n') ? '\n' : ''
-    const trailingBreak = after && !after.startsWith('\n') ? '\n' : ''
-    const insertion = `${leadingBreak}![전시 본문 이미지](${result.url})\n${trailingBreak}`
-    body.value = `${before}${insertion}${after}`
-    insertionCursor.value = before.length + insertion.length
-    notice.value = '선택한 위치에 본문 이미지를 넣었습니다.'
-
-    await nextTick()
-    documentEditor.value?.focus()
-    documentEditor.value?.setSelectionRange(insertionCursor.value, insertionCursor.value)
-  } catch (error) {
-    notice.value = apiErrorMessage(error, '본문 이미지를 올리지 못했습니다.')
-  } finally {
-    uploading.value = false
-    inlineImageUploading.value = false
-    input.value = ''
-  }
+function useBodyImageAsCover(image: { url: string }) {
+  imageUrl.value = image.url
 }
 
 async function importDocument(event: Event) {
@@ -258,7 +234,6 @@ async function importDocument(event: Event) {
       body: form,
     })
     body.value = result.body_markdown
-    insertionCursor.value = null
     notice.value = result.message
   } finally {
     uploading.value = false
@@ -273,11 +248,10 @@ async function save(publish: boolean) {
     await $fetch(`${config.public.apiBase}/admin/posts`, {
       method: 'POST',
       credentials: 'include',
-      body: { body_markdown: body.value, image_url: imageUrl.value, publish },
+      body: { body_markdown: body.value, image_url: imageUrl.value || firstInlineImageURL.value, publish },
     })
     notice.value = publish ? '전시 목록에 게시했습니다.' : '초안으로 저장했습니다.'
     body.value = exhibitionTemplate
-    insertionCursor.value = null
     imageUrl.value = ''
     await loadAdminPosts()
   } finally {
@@ -421,43 +395,38 @@ onMounted(() => {
             <ImagePlus :size="17" /> 대표 사진
             <input type="file" accept="image/*" @change="uploadImage">
           </label>
-          <label class="tool-button">
-            <ImagePlus :size="17" /> 본문 이미지
-            <input type="file" accept="image/*" @change="uploadInlineImage">
-          </label>
         </div>
       </div>
 
       <div class="editor-workspace">
-        <textarea
-          ref="documentEditor"
+        <ExhibitionBlockEditor
           v-model="body"
-          class="document-editor"
-          aria-label="공연·전시 게시글 본문"
-          spellcheck="true"
-          @click="rememberEditorCursor"
-          @keyup="rememberEditorCursor"
-          @select="rememberEditorCursor"
+          :upload-image="uploadBodyImage"
+          @set-cover="useBodyImageAsCover"
+          @uploading="editorUploading = $event"
+          @notice="notice = $event"
         />
 
         <article class="editor-live-preview" aria-label="게시글 실시간 미리보기">
           <header class="editor-preview-header">
             <p class="eyebrow">LIVE PREVIEW</p>
-            <span v-if="inlineImageUploading"><LoaderCircle :size="14" class="spin" /> 이미지 올리는 중</span>
+            <span v-if="editorUploading"><LoaderCircle :size="14" class="spin" /> 이미지 올리는 중</span>
           </header>
-          <img v-if="imageUrl" :src="imageUrl" alt="업로드한 대표 이미지" class="editor-preview-cover">
+          <img v-if="imageUrl || firstInlineImageURL" :src="imageUrl || firstInlineImageURL" alt="대표 이미지 미리보기" class="editor-preview-cover">
           <h2>{{ previewTitle }}</h2>
           <dl v-if="previewFields.length" class="detail-fields editor-preview-fields">
             <div v-for="field in previewFields" :key="field.label" class="detail-field">
               <dt>{{ field.label }}</dt>
               <dd>
                 <template v-for="(segment, segmentIndex) in previewFieldContent(field.value)" :key="`${field.label}-${segmentIndex}`">
-                  <img
-                    v-if="segment.type === 'image'"
-                    :src="segment.url"
-                    :alt="segment.alt"
-                    class="detail-inline-image"
-                  >
+                  <figure v-if="segment.type === 'image'" class="detail-inline-figure">
+                    <img
+                      :src="segment.url"
+                      :alt="segment.alt"
+                      class="detail-inline-image"
+                    >
+                    <figcaption v-if="segment.alt && segment.alt !== '전시 본문 이미지'">{{ segment.alt }}</figcaption>
+                  </figure>
                   <span v-else class="detail-inline-text">{{ segment.value }}</span>
                 </template>
               </dd>
@@ -469,12 +438,12 @@ onMounted(() => {
 
       <div class="editor-footer">
         <p class="editor-notice">
-          <LoaderCircle v-if="saving || uploading" :size="16" class="spin" />
+          <LoaderCircle v-if="saving || uploading || editorUploading" :size="16" class="spin" />
           <span v-else>{{ notice || '게시 전 주소와 자동 추출 결과를 확인해 주세요.' }}</span>
         </p>
         <div class="editor-buttons">
-          <button class="pill-button secondary" type="button" :disabled="saving" @click="save(false)">초안 저장</button>
-          <button class="pill-button" type="button" :disabled="saving" @click="save(true)"><Send :size="17" /> 게시하기</button>
+          <button class="pill-button secondary" type="button" :disabled="saving || editorUploading" @click="save(false)">초안 저장</button>
+          <button class="pill-button" type="button" :disabled="saving || editorUploading" @click="save(true)"><Send :size="17" /> 게시하기</button>
         </div>
       </div>
     </section>

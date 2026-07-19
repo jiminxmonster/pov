@@ -743,6 +743,18 @@ textarea:focus-visible {
   background: var(--paper);
 }
 
+.detail-inline-figure {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.detail-inline-figure figcaption {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity var(--motion-medium) ease;
@@ -1273,11 +1285,24 @@ textarea:focus-visible {
   object-fit: cover;
 }
 
-.submission-body-label {
+.submission-body-heading {
   margin: 28px 0 12px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.submission-body-heading small {
+  max-width: 430px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.55;
+  text-align: right;
 }
 
 .submission-editor {
@@ -1491,6 +1516,16 @@ textarea:focus-visible {
 
   .submission-form {
     margin-top: 64px;
+  }
+
+  .submission-body-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .submission-body-heading small {
+    text-align: left;
   }
 
   .submission-editor {

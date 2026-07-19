@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,8 @@ import (
 )
 
 const sessionCookieName = "pov_admin"
+
+var inlineImageIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,120}$`)
 
 type Config struct {
 	Port               string
@@ -340,42 +343,83 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 12<<20)
-	if err := r.ParseMultipartForm(12 << 20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, 60<<20)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "제보 내용을 읽지 못했습니다")
 		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
 	}
 	if strings.TrimSpace(r.FormValue("website")) != "" {
 		writeError(w, http.StatusBadRequest, "제보를 접수하지 못했습니다")
 		return
 	}
 
-	body := strings.TrimSpace(r.FormValue("body_markdown"))
-	if len([]rune(body)) < 20 {
+	rawBody := strings.TrimSpace(r.FormValue("body_markdown"))
+	if len([]rune(rawBody)) < 20 {
 		writeError(w, http.StatusBadRequest, "전시 정보를 조금 더 입력해 주세요")
 		return
 	}
 
-	metadata, title, address, latitude, longitude := parseTemplate(body)
+	_, title, address, _, _ := parseTemplate(rawBody)
 	if title == "제목 확인 필요" || address == "" {
 		writeError(w, http.StatusBadRequest, "전시명과 장소를 입력해 주세요")
 		return
 	}
+
+	body, inlineURLs, savedNames, err := s.saveSubmissionInlineImages(r, rawBody)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	cleanupUploads := func() {
+		for _, name := range savedNames {
+			_ = os.Remove(filepath.Join(s.config.UploadDir, name))
+		}
+	}
+
+	metadata, title, address, latitude, longitude := parseTemplate(body)
 	metadataBytes, _ := json.Marshal(metadata)
+
+	coverInlineURL := ""
+	if coverInlineID := strings.TrimSpace(r.FormValue("cover_inline_id")); coverInlineID != "" {
+		var ok bool
+		coverInlineURL, ok = inlineURLs[coverInlineID]
+		if !ok {
+			cleanupUploads()
+			writeError(w, http.StatusBadRequest, "대표로 선택한 본문 이미지를 확인해 주세요")
+			return
+		}
+	}
 
 	imageURL := ""
 	file, header, err := r.FormFile("image")
 	if err == nil {
 		defer file.Close()
+		if header.Size > 8<<20 {
+			cleanupUploads()
+			writeError(w, http.StatusBadRequest, "대표 이미지는 8MB 이하로 선택해 주세요")
+			return
+		}
 		name, saveErr := s.saveImageUpload(file, header)
 		if saveErr != nil {
+			cleanupUploads()
 			writeError(w, http.StatusBadRequest, saveErr.Error())
 			return
 		}
+		savedNames = append(savedNames, name)
 		imageURL = prefixedPath(s.config.BasePath, "/uploads/"+name)
 	} else if !errors.Is(err, http.ErrMissingFile) {
+		cleanupUploads()
 		writeError(w, http.StatusBadRequest, "대표 이미지를 읽지 못했습니다")
 		return
+	}
+	if imageURL == "" {
+		imageURL = coverInlineURL
+	}
+	if imageURL == "" {
+		imageURL = firstInlineImageURL(rawBody, inlineURLs)
 	}
 
 	row := s.db.QueryRow(r.Context(), `
@@ -386,9 +430,7 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 
 	post, err := scanPost(row)
 	if err != nil {
-		if imageURL != "" {
-			_ = os.Remove(filepath.Join(s.config.UploadDir, filepath.Base(imageURL)))
-		}
+		cleanupUploads()
 		writeError(w, http.StatusInternalServerError, "제보를 저장하지 못했습니다")
 		return
 	}
@@ -674,6 +716,83 @@ func (s *Server) saveImageUpload(file multipart.File, header *multipart.FileHead
 		return "", errors.New("이미지를 저장하지 못했습니다")
 	}
 	return name, nil
+}
+
+func (s *Server) saveSubmissionInlineImages(r *http.Request, body string) (string, map[string]string, []string, error) {
+	urls := make(map[string]string)
+	savedNames := make([]string, 0)
+	cleanup := func() {
+		for _, name := range savedNames {
+			_ = os.Remove(filepath.Join(s.config.UploadDir, name))
+		}
+	}
+
+	files := map[string][]*multipart.FileHeader{}
+	if r.MultipartForm != nil {
+		files = r.MultipartForm.File
+	}
+	inlineCount := 0
+	for fieldName := range files {
+		if strings.HasPrefix(fieldName, "inline_image_") {
+			inlineCount++
+		}
+	}
+	if inlineCount > 6 {
+		return "", nil, nil, errors.New("본문 이미지는 게시글당 최대 6장까지 넣을 수 있습니다")
+	}
+
+	resolvedBody := body
+	for fieldName, headers := range files {
+		if !strings.HasPrefix(fieldName, "inline_image_") {
+			continue
+		}
+		imageID := strings.TrimPrefix(fieldName, "inline_image_")
+		placeholder := "pov-inline://" + imageID
+		markdownPlaceholder := "(" + placeholder + ")"
+		if !inlineImageIDPattern.MatchString(imageID) || len(headers) != 1 || !strings.Contains(resolvedBody, markdownPlaceholder) {
+			cleanup()
+			return "", nil, nil, errors.New("본문 이미지 정보가 올바르지 않습니다")
+		}
+		header := headers[0]
+		if header.Size > 8<<20 {
+			cleanup()
+			return "", nil, nil, errors.New("본문 이미지는 장당 8MB 이하로 선택해 주세요")
+		}
+		file, err := header.Open()
+		if err != nil {
+			cleanup()
+			return "", nil, nil, errors.New("본문 이미지를 읽지 못했습니다")
+		}
+		name, saveErr := s.saveImageUpload(file, header)
+		_ = file.Close()
+		if saveErr != nil {
+			cleanup()
+			return "", nil, nil, saveErr
+		}
+		savedNames = append(savedNames, name)
+		url := prefixedPath(s.config.BasePath, "/uploads/"+name)
+		urls[imageID] = url
+		resolvedBody = strings.ReplaceAll(resolvedBody, markdownPlaceholder, "("+url+")")
+	}
+
+	if strings.Contains(resolvedBody, "pov-inline://") {
+		cleanup()
+		return "", nil, nil, errors.New("저장되지 않은 본문 이미지가 있습니다. 이미지를 다시 선택해 주세요")
+	}
+	return strings.TrimSpace(resolvedBody), urls, savedNames, nil
+}
+
+func firstInlineImageURL(body string, urls map[string]string) string {
+	firstIndex := len(body) + 1
+	firstURL := ""
+	for imageID, url := range urls {
+		index := strings.Index(body, "(pov-inline://"+imageID+")")
+		if index >= 0 && index < firstIndex {
+			firstIndex = index
+			firstURL = url
+		}
+	}
+	return firstURL
 }
 
 func (s *Server) saveUploadBytes(data []byte, extension string) (string, error) {
