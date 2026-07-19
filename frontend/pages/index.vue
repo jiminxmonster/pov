@@ -157,7 +157,7 @@ onMounted(initializePage)
       </button>
     </section>
 
-    <section ref="mapSection" class="discovery" aria-label="지도 위의 장면들">
+    <section id="map" ref="mapSection" class="discovery" aria-label="지도 위의 장면들">
       <header class="map-toolbar">
         <button class="index-emblem" type="button" aria-label="POV" @click="handleLogoTap">
           <img :src="logoUrl" alt="POV 엠블럼">
@@ -209,7 +209,7 @@ onMounted(initializePage)
       </button>
     </section>
 
-    <section ref="listSection" class="exhibition-index" aria-labelledby="exhibition-index-title">
+    <section id="list" ref="listSection" class="exhibition-index" aria-labelledby="exhibition-index-title">
       <header class="index-toolbar">
         <button class="index-emblem" type="button" aria-label="POV" @click="handleLogoTap">
           <img :src="logoUrl" alt="POV 엠블럼">

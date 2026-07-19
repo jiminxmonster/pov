@@ -87,7 +87,7 @@ async function openView(target: 'map' | 'list') {
       target,
     }))
   }
-  await router.push({ path: '/', query: { view: target } })
+  await router.push({ path: '/', query: { view: target }, hash: `#${target}` })
 }
 
 async function initializeChat() {
