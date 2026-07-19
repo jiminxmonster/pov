@@ -20,4 +20,18 @@ export interface SearchResponse {
   interpretation?: string
   total: number
   ai_powered?: boolean
+  mode?: 'map' | 'wizard' | 'chat'
+  question?: string
+  options?: string[]
+  links?: SearchLink[]
+}
+
+export interface SearchLink {
+  label: string
+  url: string
+}
+
+export interface AIConversationTurn {
+  role: 'user' | 'assistant'
+  content: string
 }

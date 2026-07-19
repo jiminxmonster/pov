@@ -245,7 +245,7 @@ func TestNVIDIASettingsAndCurationHelpers(t *testing.T) {
 		t.Fatal("NVIDIA model validation is incorrect")
 	}
 
-	curation, err := parseNVIDIACuration("```json\n{\"answer\":\"여름 데이트 전시입니다.\",\"recommended_ids\":[\"post-2\",\"post-1\"]}\n```")
+	curation, err := parseNVIDIACuration("```json\n{\"mode\":\"map\",\"answer\":\"여름 데이트 전시입니다.\",\"recommended_ids\":[\"post-2\",\"post-1\"]}\n```")
 	if err != nil {
 		t.Fatalf("parse NVIDIA curation: %v", err)
 	}
@@ -254,6 +254,41 @@ func TestNVIDIASettingsAndCurationHelpers(t *testing.T) {
 	ordered := postsByRecommendedIDs(posts, ids)
 	if len(ordered) != 2 || ordered[0].ID != "post-2" || ordered[1].ID != "post-1" {
 		t.Fatalf("unexpected curated post order: %#v", ordered)
+	}
+}
+
+func TestAIRouteNormalizationAndFallback(t *testing.T) {
+	options := normalizedAIOptions([]string{" 연인과 ", "연인과", "가족과", "친구와", "혼자", "추가"})
+	if len(options) != 4 || options[0] != "연인과" {
+		t.Fatalf("unexpected normalized options: %#v", options)
+	}
+	if normalizedAIMode("unknown") != "map" || normalizedAIMode("CHAT") != "chat" {
+		t.Fatal("AI mode normalization failed")
+	}
+
+	wizard := fallbackAIDecision("전시 추천해줘", nil, nil)
+	if wizard.Mode != "wizard" || wizard.Question == "" || len(wizard.Options) < 2 {
+		t.Fatalf("expected wizard fallback, got %#v", wizard)
+	}
+	posts := []Post{{ID: "post-1", Title: "첫 전시"}}
+	chat := fallbackAIDecision("첫 전시 관람료 알려줘", nil, posts)
+	if chat.Mode != "chat" || len(chat.RecommendedIDs) != 1 {
+		t.Fatalf("expected chat fallback, got %#v", chat)
+	}
+	mapResult := fallbackAIDecision("성수에서 연인과 볼 무료 전시", nil, posts)
+	if mapResult.Mode != "map" || len(mapResult.RecommendedIDs) != 1 {
+		t.Fatalf("expected map fallback, got %#v", mapResult)
+	}
+}
+
+func TestSourceLinksOnlyUseRegisteredHTTPURLs(t *testing.T) {
+	posts := []Post{
+		{Title: "공식 전시", Metadata: map[string]string{"원문 링크": "https://example.com/exhibition"}},
+		{Title: "위험한 전시", Metadata: map[string]string{"원문 링크": "javascript:alert(1)"}},
+	}
+	links := sourceLinksForPosts(posts)
+	if len(links) != 1 || links[0].URL != "https://example.com/exhibition" {
+		t.Fatalf("unexpected source links: %#v", links)
 	}
 }
 

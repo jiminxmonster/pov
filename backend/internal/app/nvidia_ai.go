@@ -59,6 +59,14 @@ type nvidiaChatResponse struct {
 type nvidiaCuration struct {
 	Answer         string   `json:"answer"`
 	RecommendedIDs []string `json:"recommended_ids"`
+	Mode           string   `json:"mode"`
+	Question       string   `json:"question,omitempty"`
+	Options        []string `json:"options,omitempty"`
+}
+
+type aiConversationTurn struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 type curationCandidate struct {
@@ -236,7 +244,7 @@ func testNVIDIAConnection(ctx context.Context, settings nvidiaAISettings) error 
 	return nil
 }
 
-func curateWithNVIDIA(ctx context.Context, settings nvidiaAISettings, query string, posts []Post) (nvidiaCuration, error) {
+func curateWithNVIDIA(ctx context.Context, settings nvidiaAISettings, query string, history []aiConversationTurn, posts []Post) (nvidiaCuration, error) {
 	candidates := make([]curationCandidate, 0, len(posts))
 	for _, post := range posts {
 		candidates = append(candidates, curationCandidate{
@@ -261,18 +269,22 @@ func curateWithNVIDIA(ctx context.Context, settings nvidiaAISettings, query stri
 	}
 
 	today := time.Now().In(time.FixedZone("KST", 9*60*60)).Format("2006-01-02")
-	systemPrompt := `당신은 POV 전시 큐레이터입니다. 반드시 제공된 전시 후보의 사실만 사용하세요.
-사용자의 계절, 동행인, 지역, 비용, 분위기, 이동 편의 조건을 해석해 가장 알맞은 전시를 최대 12개 고르세요.
-근거가 없는 정보나 전시를 만들지 말고, 정보가 부족하면 그 사실을 짧게 밝히세요.
-answer는 자연스러운 한국어 2~4문장으로 추천 기준과 핵심 이유를 설명하세요.
-recommended_ids에는 추천 순서대로 후보 id만 넣으세요.
+	systemPrompt := `당신은 POV 전시 큐레이터입니다. 사용자의 요청을 아래 세 가지 응답 방식 중 하나로 판단하세요.
+1. map: 조건이 충분히 명확하고 등록된 전시에서 곧바로 추천할 수 있을 때
+2. wizard: 추천 결과를 크게 바꾸는 조건이 부족해 한 번의 짧은 역질문이 필요할 때
+3. chat: 전시 정보, 관람 방법, 장소, 비용, 일정, 링크처럼 대화 안에서 직접 설명하는 편이 나을 때
+
+불필요한 역질문은 하지 말고 명확한 질문은 map을 우선하세요. 반드시 제공된 후보의 사실만 사용하고 존재하지 않는 전시나 링크를 만들지 마세요.
+map이면 recommended_ids에 추천 순서대로 최대 12개 id를 넣고 answer에 추천 이유를 2~4문장으로 쓰세요.
+wizard이면 question에 한 가지 질문만 쓰고 options에는 서로 겹치지 않는 짧은 선택지 2~4개를 넣으세요. answer는 질문이 필요한 이유를 한 문장으로 쓰세요.
+chat이면 answer에 자연스러운 한국어 2~5문장으로 직접 답하고 관련 전시가 있으면 recommended_ids에 최대 6개 id를 넣으세요.
 마크다운이나 코드 블록 없이 아래 JSON 객체 하나만 출력하세요.
-{"answer":"...","recommended_ids":["..."]}`
+{"mode":"map|wizard|chat","answer":"...","question":"...","options":["..."],"recommended_ids":["..."]}`
 	userPrompt := fmt.Sprintf("오늘 날짜: %s\n사용자 질문: %s\n전시 후보 JSON:\n%s", today, query, candidateJSON)
-	content, err := callNVIDIAChat(ctx, settings, []nvidiaChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}, 700)
+	messages := []nvidiaChatMessage{{Role: "system", Content: systemPrompt}}
+	messages = append(messages, normalizedAIHistory(history)...)
+	messages = append(messages, nvidiaChatMessage{Role: "user", Content: userPrompt})
+	content, err := callNVIDIAChat(ctx, settings, messages, 900)
 	if err != nil {
 		return nvidiaCuration{}, err
 	}
@@ -280,15 +292,123 @@ recommended_ids에는 추천 순서대로 후보 id만 넣으세요.
 	if err != nil {
 		return nvidiaCuration{}, err
 	}
-	curation.RecommendedIDs = validRecommendedIDs(curation.RecommendedIDs, posts, 12)
-	if len(curation.RecommendedIDs) == 0 {
+	curation.Mode = normalizedAIMode(curation.Mode)
+	recommendationLimit := 12
+	if curation.Mode == "chat" {
+		recommendationLimit = 6
+	}
+	curation.RecommendedIDs = validRecommendedIDs(curation.RecommendedIDs, posts, recommendationLimit)
+	curation.Question = strings.TrimSpace(curation.Question)
+	curation.Options = normalizedAIOptions(curation.Options)
+	if curation.Mode == "map" && len(curation.RecommendedIDs) == 0 {
 		return nvidiaCuration{}, errors.New("NVIDIA returned no valid exhibition IDs")
+	}
+	if curation.Mode == "wizard" && (curation.Question == "" || len(curation.Options) < 2) {
+		return nvidiaCuration{}, errors.New("NVIDIA returned an incomplete wizard question")
 	}
 	curation.Answer = strings.TrimSpace(curation.Answer)
 	if curation.Answer == "" {
 		curation.Answer = "질문과 가까운 전시를 추천 순서대로 모았습니다."
 	}
 	return curation, nil
+}
+
+func normalizedAIHistory(history []aiConversationTurn) []nvidiaChatMessage {
+	if len(history) > 10 {
+		history = history[len(history)-10:]
+	}
+	result := make([]nvidiaChatMessage, 0, len(history))
+	for _, turn := range history {
+		role := strings.ToLower(strings.TrimSpace(turn.Role))
+		if role != "user" && role != "assistant" {
+			continue
+		}
+		content := strings.TrimSpace(limitRunes(turn.Content, 800))
+		if content != "" {
+			result = append(result, nvidiaChatMessage{Role: role, Content: content})
+		}
+	}
+	return result
+}
+
+func normalizedAIMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "map", "wizard", "chat":
+		return strings.ToLower(strings.TrimSpace(mode))
+	default:
+		return "map"
+	}
+}
+
+func normalizedAIOptions(options []string) []string {
+	result := make([]string, 0, min(len(options), 4))
+	seen := make(map[string]bool, len(options))
+	for _, option := range options {
+		option = strings.TrimSpace(limitRunes(option, 40))
+		if option == "" || seen[option] {
+			continue
+		}
+		seen[option] = true
+		result = append(result, option)
+		if len(result) == 4 {
+			break
+		}
+	}
+	return result
+}
+
+func fallbackAIDecision(query string, history []aiConversationTurn, posts []Post) nvidiaCuration {
+	query = strings.TrimSpace(query)
+	lower := strings.ToLower(query)
+	if len(history) == 0 && containsAny(lower, "추천해", "추천 해", "뭐 볼", "무엇을 볼", "어디 갈", "볼만한 전시") &&
+		!containsAny(lower, "연인", "데이트", "가족", "아이", "혼자", "무료", "주차", "성수", "종로", "강남", "홍대", "이번 주", "주말", "오늘") {
+		return nvidiaCuration{
+			Mode: "wizard", Answer: "조금만 더 알면 지금 마음에 가까운 전시를 고를 수 있어요.",
+			Question: "이번 관람은 누구와 함께하시나요?", Options: []string{"혼자 천천히", "연인과 함께", "가족과 함께", "친구와 함께"},
+		}
+	}
+
+	ids := make([]string, 0, min(len(posts), 12))
+	for _, post := range posts {
+		ids = append(ids, post.ID)
+		if len(ids) == 12 {
+			break
+		}
+	}
+	if containsAny(lower, "알려", "어떻게", "언제", "어디", "관람료", "주차", "도슨트", "링크", "홈페이지", "정보", "설명") {
+		answer := interpretQuery(query)
+		if len(posts) == 0 {
+			answer = "등록된 전시 정보에서는 바로 확인할 내용을 찾지 못했어요. 전시명이나 지역을 조금 더 구체적으로 알려주세요."
+		}
+		return nvidiaCuration{Mode: "chat", Answer: answer, RecommendedIDs: ids[:min(len(ids), 6)]}
+	}
+	return nvidiaCuration{Mode: "map", Answer: interpretQuery(query), RecommendedIDs: ids}
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceLinksForPosts(posts []Post) []searchLink {
+	links := make([]searchLink, 0, min(len(posts), 6))
+	seen := make(map[string]bool, len(posts))
+	for _, post := range posts {
+		url := safeHTTPURL(post.Metadata["원문 링크"])
+		if url == "" || seen[url] {
+			continue
+		}
+		seen[url] = true
+		links = append(links, searchLink{Label: post.Title + " 원문 보기", URL: url})
+		if len(links) == 6 {
+			break
+		}
+	}
+	return links
 }
 
 func callNVIDIAChat(ctx context.Context, settings nvidiaAISettings, messages []nvidiaChatMessage, maxTokens int) (string, error) {

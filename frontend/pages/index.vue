@@ -5,7 +5,10 @@ import { parseExhibitionContent, parseExhibitionFields } from '~/utils/exhibitio
 
 const config = useRuntimeConfig()
 const router = useRouter()
+const route = useRoute()
 const logoUrl = `${config.app.baseURL}logo.png`
+const chatInitialKey = 'pov-chat-initial-v1'
+const searchResultKey = 'pov-search-result-v1'
 const query = ref('')
 const posts = ref<ExhibitionPost[]>([])
 const selected = ref<ExhibitionPost | null>(null)
@@ -36,12 +39,26 @@ async function loadPosts() {
   }
 }
 
+function applySearchResult(result: SearchResponse) {
+  posts.value = result.items
+  interpretation.value = result.interpretation || ''
+  aiPowered.value = Boolean(result.ai_powered)
+  selected.value = selected.value && posts.value.some(post => post.id === selected.value?.id) ? selected.value : null
+}
+
+async function showSearchResult(result: SearchResponse, target: 'map' | 'list') {
+  applySearchResult(result)
+  await nextTick()
+  const section = target === 'map' ? mapSection : listSection
+  section.value?.scrollIntoView({ behavior: 'smooth' })
+}
+
 async function search(target: 'map' | 'list' = 'map') {
-  const targetSection = target === 'map' ? mapSection : listSection
   const text = query.value.trim()
   if (!text) {
     await loadPosts()
-    targetSection.value?.scrollIntoView({ behavior: 'smooth' })
+    const section = target === 'map' ? mapSection : listSection
+    section.value?.scrollIntoView({ behavior: 'smooth' })
     return
   }
 
@@ -51,13 +68,38 @@ async function search(target: 'map' | 'list' = 'map') {
       method: 'POST',
       body: target === 'map' ? { query: text, bbox: currentBbox.value } : { query: text },
     })
-    posts.value = result.items
-    interpretation.value = result.interpretation || ''
-    aiPowered.value = Boolean(result.ai_powered)
-    selected.value = selected.value && posts.value.some(post => post.id === selected.value?.id) ? selected.value : null
-    targetSection.value?.scrollIntoView({ behavior: 'smooth' })
+    if (result.mode === 'wizard' || result.mode === 'chat') {
+      sessionStorage.setItem(chatInitialKey, JSON.stringify({ query: text, result }))
+      await router.push({ path: '/chat', query: { q: text } })
+      return
+    }
+    await showSearchResult(result, target)
   } finally {
     loading.value = false
+  }
+}
+
+async function initializePage() {
+  const view = route.query.view === 'list' ? 'list' : route.query.view === 'map' ? 'map' : ''
+  const stored = sessionStorage.getItem(searchResultKey)
+  if (stored) {
+    sessionStorage.removeItem(searchResultKey)
+    try {
+      const payload = JSON.parse(stored) as { result: SearchResponse; target?: 'map' | 'list'; query?: string }
+      if (payload.result?.items) {
+        query.value = payload.query || query.value
+        await showSearchResult(payload.result, payload.target || view || 'map')
+        return
+      }
+    } catch {
+      // Ignore expired or malformed browser state and load the current index.
+    }
+  }
+  await loadPosts()
+  if (view) {
+    await nextTick()
+    const section = view === 'map' ? mapSection : listSection
+    section.value?.scrollIntoView({ behavior: 'smooth' })
   }
 }
 
@@ -82,7 +124,7 @@ function selectPost(post: ExhibitionPost) {
   selected.value = post
 }
 
-onMounted(loadPosts)
+onMounted(initializePage)
 </script>
 
 <template>

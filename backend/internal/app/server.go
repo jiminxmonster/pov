@@ -81,10 +81,19 @@ type Post struct {
 }
 
 type searchResponse struct {
-	Items          []Post `json:"items"`
-	Interpretation string `json:"interpretation,omitempty"`
-	Total          int    `json:"total"`
-	AIPowered      bool   `json:"ai_powered,omitempty"`
+	Items          []Post       `json:"items"`
+	Interpretation string       `json:"interpretation,omitempty"`
+	Total          int          `json:"total"`
+	AIPowered      bool         `json:"ai_powered,omitempty"`
+	Mode           string       `json:"mode,omitempty"`
+	Question       string       `json:"question,omitempty"`
+	Options        []string     `json:"options,omitempty"`
+	Links          []searchLink `json:"links,omitempty"`
+}
+
+type searchLink struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
 }
 
 func ConfigFromEnv() Config {
@@ -224,8 +233,9 @@ func (s *Server) getPublishedPost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Query string `json:"query"`
-		BBox  string `json:"bbox"`
+		Query   string               `json:"query"`
+		BBox    string               `json:"bbox"`
+		History []aiConversationTurn `json:"history"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil {
 		return
@@ -236,11 +246,13 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 		if settingsErr == nil && configured && s.allowAIRequest(r) {
 			candidates, candidateErr := s.queryPosts(r.Context(), "", "published", input.BBox, 80)
 			if candidateErr == nil && len(candidates) > 0 {
-				curation, curationErr := curateWithNVIDIA(r.Context(), settings, input.Query, candidates)
+				curation, curationErr := curateWithNVIDIA(r.Context(), settings, input.Query, input.History, candidates)
 				if curationErr == nil {
 					posts := postsByRecommendedIDs(candidates, curation.RecommendedIDs)
 					writeJSON(w, http.StatusOK, searchResponse{
 						Items: posts, Total: len(posts), Interpretation: curation.Answer, AIPowered: true,
+						Mode: curation.Mode, Question: curation.Question, Options: curation.Options,
+						Links: sourceLinksForPosts(posts),
 					})
 					return
 				}
@@ -253,10 +265,22 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "검색 중 문제가 발생했습니다")
 		return
 	}
+	if len(posts) == 0 && len(input.History) > 0 {
+		posts, err = s.queryPosts(r.Context(), "", "published", input.BBox, 12)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "검색 중 문제가 발생했습니다")
+			return
+		}
+	}
+	fallback := fallbackAIDecision(input.Query, input.History, posts)
 	writeJSON(w, http.StatusOK, searchResponse{
 		Items:          posts,
 		Total:          len(posts),
-		Interpretation: interpretQuery(input.Query),
+		Interpretation: fallback.Answer,
+		Mode:           fallback.Mode,
+		Question:       fallback.Question,
+		Options:        fallback.Options,
+		Links:          sourceLinksForPosts(posts),
 	})
 }
 
