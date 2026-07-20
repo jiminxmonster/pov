@@ -283,9 +283,18 @@ func TestAIRouteNormalizationAndFallback(t *testing.T) {
 	if chat.Mode != "chat" || len(chat.RecommendedIDs) != 1 {
 		t.Fatalf("expected chat fallback, got %#v", chat)
 	}
+	for _, query := range []string{"이 전시는 어떤 내용이야?", "이 작가는 누구야?", "아이와 가도 돼?"} {
+		if result := fallbackAIDecision(query, nil, posts); result.Mode != "chat" {
+			t.Fatalf("expected conversational question %q to open chat, got %#v", query, result)
+		}
+	}
 	mapResult := fallbackAIDecision("성수에서 연인과 볼 무료 전시", nil, posts)
 	if mapResult.Mode != "map" || len(mapResult.RecommendedIDs) != 1 {
 		t.Fatalf("expected map fallback, got %#v", mapResult)
+	}
+	recommendationQuestion := fallbackAIDecision("여름에 연인과 볼만한 전시 있어?", nil, posts)
+	if recommendationQuestion.Mode != "map" {
+		t.Fatalf("expected recommendation question to stay on map, got %#v", recommendationQuestion)
 	}
 }
 

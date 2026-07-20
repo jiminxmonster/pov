@@ -407,8 +407,13 @@ func initialWizardDecision(query string, history []aiConversationTurn) (nvidiaCu
 
 func isInformationQuery(query string) bool {
 	lower := strings.ToLower(strings.TrimSpace(query))
-	return containsAny(lower, "알려", "어떻게", "언제", "어디", "관람료", "주차", "도슨트", "링크", "홈페이지", "정보", "설명") &&
-		!containsAny(lower, "추천", "찾아", "골라", "볼만한")
+	if containsAny(lower, "추천", "찾아", "골라", "볼만한", "뭐 볼", "무엇을 볼", "어디 갈") {
+		return false
+	}
+	return containsAny(lower,
+		"알려", "어떻게", "언제", "어디", "관람료", "주차", "도슨트", "링크", "홈페이지", "정보", "설명",
+		"누구", "무엇", "어떤", "뭐야", "어때", "왜", "가능", "있어", "없어", "가도 돼", "해도 돼",
+	)
 }
 
 func aiConversationQuery(query string, history []aiConversationTurn) string {

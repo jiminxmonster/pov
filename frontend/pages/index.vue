@@ -46,6 +46,10 @@ function applySearchResult(result: SearchResponse) {
   selected.value = selected.value && posts.value.some(post => post.id === selected.value?.id) ? selected.value : null
 }
 
+function shouldOpenConversation(result: SearchResponse) {
+  return result.mode === 'wizard' || result.mode === 'chat' || Boolean(result.question?.trim())
+}
+
 async function showSearchResult(result: SearchResponse, target: 'map' | 'list') {
   applySearchResult(result)
   await nextTick()
@@ -68,7 +72,7 @@ async function search(target: 'map' | 'list' = 'map') {
       method: 'POST',
       body: target === 'map' ? { query: text, bbox: currentBbox.value } : { query: text },
     })
-    if (result.mode === 'wizard' || result.mode === 'chat') {
+    if (shouldOpenConversation(result)) {
       sessionStorage.setItem(chatInitialKey, JSON.stringify({ query: text, result }))
       await router.push({ path: '/chat', query: { q: text } })
       return

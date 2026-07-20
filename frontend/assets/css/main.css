@@ -380,6 +380,7 @@ textarea:focus-visible {
 .interpretation.is-ai {
 	padding: 14px 16px;
 	border: 1px solid var(--ink);
+	border-radius: 18px;
 	background: var(--post-it);
 	color: var(--ink);
 	line-height: 1.65;
@@ -627,6 +628,7 @@ textarea:focus-visible {
   place-items: center;
   background: transparent;
   border: 0;
+  transition: opacity var(--motion-quick) ease, transform var(--motion-quick) ease;
 }
 
 .pov-cluster-count {

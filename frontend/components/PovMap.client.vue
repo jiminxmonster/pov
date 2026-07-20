@@ -75,7 +75,12 @@ function initializeMap() {
 
   L.control.zoom({ position: 'bottomright' }).addTo(map)
   markerClusterGroup = L.markerClusterGroup({
-    maxClusterRadius: 68,
+    // 넓게 볼 때는 가까운 전시를 한 숫자로 정리하고, 확대할수록
+    // 클러스터 반경을 줄여 작은 묶음과 개별 핀이 차례로 드러나게 한다.
+    maxClusterRadius: zoom => Math.max(18, 84 - Math.max(0, zoom - 9) * 12),
+    disableClusteringAtZoom: 17,
+    animate: true,
+    animateAddingMarkers: true,
     showCoverageOnHover: false,
     spiderfyOnMaxZoom: true,
     spiderfyDistanceMultiplier: 2.4,
