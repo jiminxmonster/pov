@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ArrowDown, ArrowRight, LoaderCircle, MapPin, Plus, Search, X } from '@lucide/vue'
 import type { ExhibitionPost, SearchResponse } from '~/types/post'
-import { parseExhibitionContent, parseExhibitionFields } from '~/utils/exhibition'
+import { isExhibitionExpired, parseExhibitionContent, parseExhibitionFields } from '~/utils/exhibition'
 
 const config = useRuntimeConfig()
 const router = useRouter()
 const route = useRoute()
 const logoUrl = `${config.app.baseURL}logo.png`
+const expiredStampUrl = `${config.app.baseURL}expired-stamp.png`
 const chatInitialKey = 'pov-chat-initial-v1'
 const searchResultKey = 'pov-search-result-v1'
 const query = ref('')
@@ -20,6 +21,7 @@ const listSection = ref<HTMLElement | null>(null)
 const currentBbox = ref('')
 const tapHistory = ref<number[]>([])
 const selectedFields = computed(() => selected.value ? parseExhibitionFields(selected.value.body_markdown) : [])
+const selectedExpired = computed(() => selected.value ? isExhibitionExpired(selected.value) : false)
 
 useSeoMeta({
   title: '전지적관람시점',
@@ -185,7 +187,7 @@ onMounted(initializePage)
             :key="post.id"
             type="button"
             class="post-list-item"
-            :class="{ 'is-active': selected?.id === post.id }"
+            :class="{ 'is-active': selected?.id === post.id, 'is-expired': isExhibitionExpired(post) }"
             @click="selectPost(post)"
           >
             <span class="post-list-index">{{ String(index + 1).padStart(2, '0') }}</span>
@@ -193,6 +195,7 @@ onMounted(initializePage)
               <strong>{{ post.title }}</strong>
               <small><MapPin :size="13" /> {{ post.address || '장소 확인 중' }}</small>
             </span>
+            <img v-if="isExhibitionExpired(post)" :src="expiredStampUrl" alt="종료된 전시" class="expired-row-stamp is-compact">
           </button>
           <p v-if="loading" class="empty-copy"><LoaderCircle :size="18" class="spin" /> 전시를 불러오고 있습니다.</p>
           <p v-else-if="posts.length === 0" class="empty-copy">조건에 맞는 장면이 아직 없습니다.</p>
@@ -245,6 +248,7 @@ onMounted(initializePage)
           :key="post.id"
           type="button"
           class="exhibition-list-item"
+          :class="{ 'is-expired': isExhibitionExpired(post) }"
           @click="selected = post"
         >
           <span class="exhibition-number">{{ String(index + 1).padStart(2, '0') }}</span>
@@ -254,6 +258,7 @@ onMounted(initializePage)
             <small><MapPin :size="13" /> {{ post.address || '장소 확인 중' }}</small>
           </span>
           <ArrowRight :size="18" class="exhibition-arrow" aria-hidden="true" />
+          <img v-if="isExhibitionExpired(post)" :src="expiredStampUrl" alt="종료된 전시" class="expired-row-stamp">
         </button>
 
         <p v-if="loading" class="empty-copy"><LoaderCircle :size="18" class="spin" /> 전시를 불러오고 있습니다.</p>
@@ -263,10 +268,13 @@ onMounted(initializePage)
 
     <Transition name="fade">
       <div v-if="selected" class="detail-backdrop" @click.self="selected = null">
-        <article class="detail-sheet" aria-modal="true" role="dialog" :aria-label="selected.title">
+        <article class="detail-sheet" :class="{ 'is-expired': selectedExpired }" aria-modal="true" role="dialog" :aria-label="selected.title">
           <button class="icon-button detail-close" type="button" aria-label="닫기" @click="selected = null">
             <X :size="20" />
           </button>
+          <div v-if="selectedExpired" class="detail-expired-stamp-layer" aria-hidden="true">
+            <img :src="expiredStampUrl" alt="">
+          </div>
           <img v-if="selected.image_url" :src="selected.image_url" :alt="`${selected.title} 대표 이미지`" class="detail-image">
           <p class="eyebrow">EXHIBITION NOTE</p>
           <h2>{{ selected.title }}</h2>

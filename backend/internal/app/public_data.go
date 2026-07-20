@@ -130,7 +130,7 @@ func (s *Server) syncSeoulExhibitionsWithSettings(ctx context.Context, settings 
 	}
 
 	var payload seoulCulturalEventResponse
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 8<<20))
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 32<<20))
 	if err := decoder.Decode(&payload); err != nil {
 		return 0, errors.New("공공데이터 응답을 읽지 못했습니다")
 	}
@@ -146,20 +146,9 @@ func (s *Server) syncSeoulExhibitionsWithSettings(ctx context.Context, settings 
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `
-		UPDATE posts
-		SET status = 'archived', updated_at = NOW()
-		WHERE source_type = 'seoul-open-data'
-			AND status = 'published'
-			AND metadata->>'전시종료일' ~ '^\d{4}-\d{2}-\d{2}$'
-			AND (metadata->>'전시종료일')::date < CURRENT_DATE
-	`); err != nil {
-		return 0, err
-	}
-
 	count := 0
 	for _, event := range payload.CulturalEventInfo.Rows {
-		exhibition, ok := convertSeoulEvent(event, time.Now())
+		exhibition, ok := convertSeoulEvent(event)
 		if !ok {
 			continue
 		}
@@ -192,7 +181,7 @@ func (s *Server) syncSeoulExhibitionsWithSettings(ctx context.Context, settings 
 	return count, nil
 }
 
-func convertSeoulEvent(event seoulCulturalEvent, now time.Time) (publicExhibition, bool) {
+func convertSeoulEvent(event seoulCulturalEvent) (publicExhibition, bool) {
 	title := strings.TrimSpace(event.Title)
 	place := strings.TrimSpace(event.Place)
 	latitude, latErr := strconv.ParseFloat(strings.TrimSpace(event.Latitude), 64)
@@ -202,9 +191,6 @@ func convertSeoulEvent(event seoulCulturalEvent, now time.Time) (publicExhibitio
 	}
 
 	endDate := datePart(event.EndDate)
-	if parsedEnd, err := time.ParseInLocation("2006-01-02", endDate, now.Location()); err == nil && parsedEnd.Before(dayStart(now)) {
-		return publicExhibition{}, false
-	}
 
 	fee := strings.TrimSpace(event.Fee)
 	if fee == "" {
@@ -284,11 +270,6 @@ func datePart(value string) string {
 		return value[:10]
 	}
 	return value
-}
-
-func dayStart(value time.Time) time.Time {
-	year, month, day := value.Date()
-	return time.Date(year, month, day, 0, 0, 0, 0, value.Location())
 }
 
 func prefixedValue(label, value string) string {

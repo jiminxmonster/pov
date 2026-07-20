@@ -3,6 +3,7 @@ import L, { type Map as LeafletMap, type Marker } from 'leaflet'
 import 'leaflet.markercluster'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
 import type { ExhibitionPost } from '~/types/post'
+import { isExhibitionExpired } from '~/utils/exhibition'
 
 const config = useRuntimeConfig()
 const markerUrl = `${config.app.baseURL}mmarrk.svg`
@@ -31,9 +32,10 @@ function renderMarkers() {
 
   props.posts.forEach((post, index) => {
     const selected = post.id === props.selectedId
+    const expired = isExhibitionExpired(post)
     const icon = L.divIcon({
       className: 'pov-marker-shell',
-      html: `<span class="pov-marker ${selected ? 'is-selected' : ''}" style="--tilt:${index % 2 === 0 ? '-1.5deg' : '1.5deg'}"><span class="pov-marker-card">${escapeHtml(post.title)}</span><img class="pov-marker-symbol" src="${markerUrl}" alt=""></span>`,
+      html: `<span class="pov-marker ${selected ? 'is-selected' : ''} ${expired ? 'is-expired' : ''}" style="--tilt:${index % 2 === 0 ? '-1.5deg' : '1.5deg'}"><span class="pov-marker-card">${escapeHtml(post.title)}</span><img class="pov-marker-symbol" src="${markerUrl}" alt=""></span>`,
       iconSize: [150, 112],
       iconAnchor: [75, 108],
     })

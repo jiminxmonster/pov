@@ -264,6 +264,7 @@ textarea:focus-visible {
 }
 
 .exhibition-list-item {
+  position: relative;
   width: 100%;
   min-height: 142px;
   display: grid;
@@ -275,6 +276,7 @@ textarea:focus-visible {
   background: transparent;
   text-align: center;
   cursor: pointer;
+  overflow: hidden;
   transition: background var(--motion-quick), padding var(--motion-quick);
 }
 
@@ -320,6 +322,33 @@ textarea:focus-visible {
 .exhibition-arrow {
   justify-self: center;
   color: var(--muted);
+}
+
+.exhibition-list-item.is-expired .exhibition-copy,
+.exhibition-list-item.is-expired .exhibition-arrow,
+.post-list-item.is-expired .post-list-copy {
+  opacity: 0.38;
+  filter: grayscale(0.72);
+}
+
+.expired-row-stamp {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  width: 108px;
+  height: 108px;
+  pointer-events: none;
+  object-fit: contain;
+  opacity: 0.24;
+  mix-blend-mode: multiply;
+  transform: translate(-50%, -50%) rotate(-7deg);
+}
+
+.expired-row-stamp.is-compact {
+  width: 72px;
+  height: 72px;
+  opacity: 0.22;
 }
 
 .exhibition-list .empty-copy {
@@ -490,6 +519,7 @@ textarea:focus-visible {
 }
 
 .post-list-item {
+  position: relative;
   width: 100%;
   min-height: 104px;
   display: grid;
@@ -502,6 +532,7 @@ textarea:focus-visible {
   background: transparent;
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
   transition: background var(--motion-quick);
 }
 
@@ -623,6 +654,16 @@ textarea:focus-visible {
   filter: drop-shadow(0 9px 12px rgba(17, 17, 17, 0.18));
 }
 
+.pov-marker.is-expired .pov-marker-card {
+  opacity: 0.4;
+  filter: grayscale(0.72);
+}
+
+.pov-marker.is-expired .pov-marker-symbol {
+  opacity: 0.58;
+  filter: grayscale(0.6) drop-shadow(0 4px 5px rgba(17, 17, 17, 0.12));
+}
+
 .pov-cluster-shell {
   display: grid;
   place-items: center;
@@ -675,12 +716,40 @@ textarea:focus-visible {
 
 .detail-close {
   position: absolute;
+  z-index: 4;
   top: 24px;
   right: 24px;
   width: 44px;
   height: 44px;
   border: 1px solid var(--line);
   border-radius: 50%;
+}
+
+.detail-sheet.is-expired h2,
+.detail-sheet.is-expired .detail-address,
+.detail-sheet.is-expired .detail-fields {
+  opacity: 0.38;
+  filter: grayscale(0.72);
+}
+
+.detail-expired-stamp-layer {
+  position: fixed;
+  z-index: 3;
+  top: 0;
+  right: 0;
+  width: min(620px, 100%);
+  height: 100%;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.detail-expired-stamp-layer img {
+  width: clamp(150px, 22vw, 220px);
+  height: auto;
+  opacity: 0.3;
+  mix-blend-mode: multiply;
+  transform: rotate(-7deg);
 }
 
 .detail-image {
@@ -1717,6 +1786,13 @@ textarea:focus-visible {
     height: min(88svh, 880px);
     border-radius: 24px 24px 0 0;
     box-shadow: 0 -18px 50px rgba(17, 17, 17, 0.12);
+  }
+
+  .detail-expired-stamp-layer {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: min(88svh, 880px);
   }
 
   .admin-header strong {

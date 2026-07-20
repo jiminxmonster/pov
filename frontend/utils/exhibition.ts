@@ -23,6 +23,25 @@ export interface ExhibitionField {
   value: string
 }
 
+interface ExhibitionDateSource {
+  metadata: Record<string, string>
+  body_markdown: string
+}
+
+export function isExhibitionExpired(post: ExhibitionDateSource, now = new Date()) {
+  const period = post.metadata['전시기간'] ||
+    parseExhibitionFields(post.body_markdown).find(field => field.label === '전시기간')?.value || ''
+  const periodDates = period.match(/\d{4}[./-]\d{1,2}[./-]\d{1,2}/g) || []
+  const rawEndDate = post.metadata['전시종료일'] || periodDates[periodDates.length - 1] || ''
+  const parts = rawEndDate.replace(/[./]/g, '-').split('-').map(Number)
+  if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) return false
+
+  const [year, month, day] = parts
+  const endOfDay = new Date(year, month - 1, day, 23, 59, 59, 999)
+  if (endOfDay.getFullYear() !== year || endOfDay.getMonth() !== month - 1 || endOfDay.getDate() !== day) return false
+  return endOfDay.getTime() < now.getTime()
+}
+
 export type ExhibitionContentSegment =
   | { type: 'text', value: string }
   | { type: 'image', url: string, alt: string }

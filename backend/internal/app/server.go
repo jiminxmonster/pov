@@ -108,7 +108,7 @@ func ConfigFromEnv() Config {
 		UploadDir:          envOr("UPLOAD_DIR", "./uploads"),
 		SeoulOpenDataURL:   envOr("SEOUL_OPEN_DATA_URL", "http://openapi.seoul.go.kr:8088"),
 		SeoulOpenDataKey:   envOr("SEOUL_OPEN_DATA_KEY", "sample"),
-		SeoulOpenDataLimit: envIntOr("SEOUL_OPEN_DATA_LIMIT", 5),
+		SeoulOpenDataLimit: envIntOr("SEOUL_OPEN_DATA_LIMIT", 1000),
 	}
 }
 
@@ -210,7 +210,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listPublishedPosts(w http.ResponseWriter, r *http.Request) {
-	posts, err := s.queryPosts(r.Context(), r.URL.Query().Get("q"), "published", r.URL.Query().Get("bbox"), 100)
+	posts, err := s.queryPosts(r.Context(), r.URL.Query().Get("q"), "published", r.URL.Query().Get("bbox"), 1000)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "게시글을 불러오지 못했습니다")
 		return

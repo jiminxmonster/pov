@@ -190,7 +190,7 @@ func (s *Server) settingCipher() (cipher.AEAD, error) {
 func normalizePublicDataSettings(settings publicDataSettings) publicDataSettings {
 	settings.APIKey = strings.TrimSpace(settings.APIKey)
 	if settings.Limit < 1 {
-		settings.Limit = 5
+		settings.Limit = 1000
 	}
 	if strings.EqualFold(settings.APIKey, "sample") && settings.Limit > 5 {
 		settings.Limit = 5

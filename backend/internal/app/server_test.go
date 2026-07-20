@@ -159,7 +159,6 @@ func TestSubmissionRejectsMissingInlineImage(t *testing.T) {
 }
 
 func TestConvertSeoulEvent(t *testing.T) {
-	now := time.Date(2026, time.July, 18, 14, 0, 0, 0, time.FixedZone("KST", 9*60*60))
 	event := seoulCulturalEvent{
 		CodeName:  "전시/미술",
 		GuName:    "중구",
@@ -178,7 +177,7 @@ func TestConvertSeoulEvent(t *testing.T) {
 		ImageURL:  "https://example.com/poster.jpg",
 	}
 
-	exhibition, ok := convertSeoulEvent(event, now)
+	exhibition, ok := convertSeoulEvent(event)
 	if !ok {
 		t.Fatal("expected current exhibition to be converted")
 	}
@@ -196,8 +195,9 @@ func TestConvertSeoulEvent(t *testing.T) {
 	}
 
 	event.EndDate = "2026-07-17 00:00:00.0"
-	if _, ok := convertSeoulEvent(event, now); ok {
-		t.Fatal("ended exhibition must be ignored")
+	ended, ok := convertSeoulEvent(event)
+	if !ok || ended.Metadata["전시종료일"] != "2026-07-17" {
+		t.Fatal("ended exhibition must remain available with its end date")
 	}
 }
 
