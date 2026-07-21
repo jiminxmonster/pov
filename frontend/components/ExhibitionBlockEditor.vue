@@ -450,7 +450,7 @@ onBeforeUnmount(() => {
           class="block-text"
           :class="{ 'is-free-body': props.submission && field.label === '전시내용' }"
           :aria-label="`${field.label} 내용`"
-          :rows="props.submission && field.label === '전시내용' ? 10 : 2"
+          rows="2"
           spellcheck="true"
           @input="syncDocument"
           @focus="rememberCursor(block, $event)"
@@ -549,7 +549,7 @@ onBeforeUnmount(() => {
 
 .block-editor.is-submission {
   position: relative;
-  margin-bottom: 0;
+  margin-bottom: 64px;
 }
 
 .block-field {
@@ -560,8 +560,8 @@ onBeforeUnmount(() => {
 }
 
 .block-editor.is-submission .block-field.is-body {
-  min-height: 320px;
-  padding: 22px 86px 18px clamp(20px, 4vw, 42px);
+  min-height: 96px;
+  padding: 18px clamp(20px, 4vw, 42px) 14px;
 }
 
 .block-field-header {
@@ -619,7 +619,7 @@ onBeforeUnmount(() => {
 }
 
 .block-text.is-free-body {
-  min-height: 280px;
+  min-height: 60px;
   color: var(--ink);
   font-size: 16px;
   line-height: 1.9;
@@ -748,16 +748,20 @@ onBeforeUnmount(() => {
 
 .media-dock.is-embedded {
   position: absolute;
-  top: 18px;
-  right: 18px;
-  bottom: auto;
-  left: auto !important;
+  top: auto;
+  right: auto;
+  bottom: -27px;
+  left: 50% !important;
   z-index: 20;
+  transform: translateX(-50%);
 }
 
 .media-dock.is-embedded .media-menu {
   top: 64px;
+  right: auto;
   bottom: auto;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .media-dock-button {
@@ -891,12 +895,12 @@ onBeforeUnmount(() => {
   }
 
   .block-text.is-free-body {
-    min-height: 230px;
+    min-height: 58px;
   }
 
   .block-editor.is-submission .block-field.is-body {
-    min-height: 270px;
-    padding: 20px 76px 16px 18px;
+    min-height: 94px;
+    padding: 17px 18px 13px;
   }
 
   .media-dock-button {
