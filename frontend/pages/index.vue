@@ -22,6 +22,7 @@ const currentBbox = ref('')
 const tapHistory = ref<number[]>([])
 const selectedFields = computed(() => selected.value ? parseExhibitionFields(selected.value.body_markdown) : [])
 const selectedExpired = computed(() => selected.value ? isExhibitionExpired(selected.value) : false)
+const mapPosts = computed(() => posts.value.filter(post => !isExhibitionExpired(post)))
 
 useSeoMeta({
   title: '전지적관람시점',
@@ -118,6 +119,10 @@ function handleLogoTap() {
   }
 }
 
+function goToMain() {
+  if (import.meta.client) window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 function postField(post: ExhibitionPost, label: string) {
   return post.metadata[label] || parseExhibitionFields(post.body_markdown).find(field => field.label === label)?.value || ''
 }
@@ -165,7 +170,7 @@ onMounted(initializePage)
 
     <section id="map" ref="mapSection" class="discovery" aria-label="지도 위의 장면들">
       <header class="map-toolbar">
-        <button class="index-emblem" type="button" aria-label="POV" @click="handleLogoTap">
+        <button class="index-emblem" type="button" aria-label="메인 화면으로 이동" @click="goToMain">
           <img :src="logoUrl" alt="POV 엠블럼">
         </button>
 
@@ -183,7 +188,7 @@ onMounted(initializePage)
       <div class="discovery-layout">
         <aside class="post-list" aria-label="지도에 표시된 공연·전시">
           <button
-            v-for="(post, index) in posts"
+            v-for="(post, index) in mapPosts"
             :key="post.id"
             type="button"
             class="post-list-item"
@@ -198,12 +203,12 @@ onMounted(initializePage)
             <img v-if="isExhibitionExpired(post)" :src="expiredStampUrl" alt="종료된 전시" class="expired-row-stamp is-compact">
           </button>
           <p v-if="loading" class="empty-copy"><LoaderCircle :size="18" class="spin" /> 전시를 불러오고 있습니다.</p>
-          <p v-else-if="posts.length === 0" class="empty-copy">조건에 맞는 장면이 아직 없습니다.</p>
+          <p v-else-if="mapPosts.length === 0" class="empty-copy">현재 관람할 수 있는 장면이 아직 없습니다.</p>
         </aside>
 
         <div class="map-frame">
           <PovMap
-            :posts="posts"
+            :posts="mapPosts"
             :selected-id="selected?.id"
             @select="selectPost"
             @bounds-changed="currentBbox = $event"
@@ -218,7 +223,7 @@ onMounted(initializePage)
 
     <section id="list" ref="listSection" class="exhibition-index" aria-labelledby="exhibition-index-title">
       <header class="index-toolbar">
-        <button class="index-emblem" type="button" aria-label="POV" @click="handleLogoTap">
+        <button class="index-emblem" type="button" aria-label="메인 화면으로 이동" @click="goToMain">
           <img :src="logoUrl" alt="POV 엠블럼">
         </button>
 

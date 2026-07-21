@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ArrowLeft, Check, LoaderCircle, Send } from '@lucide/vue'
-import { exhibitionTemplate } from '~/utils/exhibition'
+import { submissionTemplate } from '~/utils/exhibition'
 
 const config = useRuntimeConfig()
-const body = ref(exhibitionTemplate)
+const body = ref(submissionTemplate)
 const pendingMedia = ref<Array<{ id: string, type: 'image' | 'video', file: File }>>([])
 const website = ref('')
 const submitting = ref(false)
@@ -60,16 +60,16 @@ async function submitExhibition() {
     <form v-else class="submission-form" @submit.prevent="submitExhibition">
       <div class="submission-intro">
         <p class="eyebrow">ADD A SCENE</p>
-        <h1>알고 있는 전시를<br>남겨주세요.</h1>
-        <p>비어 있는 항목은 그대로 두어도 됩니다. 전시명과 장소는 꼭 적어주세요.</p>
+        <h1>당신의 관람시점</h1>
       </div>
 
       <div class="submission-body-heading">
         <span>전시 정보</span>
-        <small>글을 쓰다 따라다니는 +를 눌러 현재 커서에 이미지나 영상을 넣으세요.</small>
+        <small>본문을 자유롭게 적고 끝의 +로 필요한 정보를 더하세요.</small>
       </div>
       <ExhibitionBlockEditor
         v-model="body"
+        submission
         @pending-media="updatePendingMedia"
         @uploading="editorUploading = $event"
         @notice="editorNotice = $event"
@@ -85,7 +85,7 @@ async function submitExhibition() {
 
       <button class="pill-button submission-button" type="submit" :disabled="submitting || editorUploading">
         <LoaderCircle v-if="submitting" :size="18" class="spin" />
-        <template v-else><Send :size="17" /> 제보 보내기</template>
+        <template v-else><Send :size="17" /> 당신의 관람시점 올리기</template>
       </button>
     </form>
   </main>

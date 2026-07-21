@@ -201,6 +201,41 @@ func TestConvertSeoulEvent(t *testing.T) {
 	}
 }
 
+func TestExhibitionLifecycleVisibility(t *testing.T) {
+	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.FixedZone("KST", 9*60*60))
+	post := func(id, endDate string) Post {
+		return Post{ID: id, Metadata: map[string]string{"전시종료일": endDate}}
+	}
+	posts := []Post{
+		post("active", "2026-08-01"),
+		post("recent-ended", "2026-07-19"),
+		post("one-month-boundary", "2026-06-20"),
+		post("knowledge-only", "2026-06-19"),
+		{ID: "no-date", Metadata: map[string]string{}},
+		{ID: "period-fallback", Metadata: map[string]string{"전시기간": "2026. 01. 01 ~ 2026. 03. 15"}},
+	}
+
+	visible := publicIndexExhibitions(posts, now, 20)
+	visibleIDs := make([]string, 0, len(visible))
+	for _, item := range visible {
+		visibleIDs = append(visibleIDs, item.ID)
+	}
+	if len(visible) != 4 || strings.Join(visibleIDs, ",") != "active,no-date,recent-ended,one-month-boundary" {
+		t.Fatalf("unexpected public index exhibitions: %#v", visible)
+	}
+	current := currentExhibitions(posts, now, 20)
+	if len(current) != 2 || current[0].ID != "active" || current[1].ID != "no-date" {
+		t.Fatalf("unexpected map exhibitions: %#v", current)
+	}
+	if !isExhibitionExpiredAt(posts[5], now) || isPublicIndexExhibitionAt(posts[5], now) {
+		t.Fatal("period fallback must be retained as knowledge only")
+	}
+	knowledge := historicalKnowledgeExhibitions(posts, now, 3)
+	if len(knowledge) != 3 || knowledge[0].ID != "recent-ended" || knowledge[1].ID != "one-month-boundary" || knowledge[2].ID != "knowledge-only" {
+		t.Fatalf("historical knowledge must prioritize ended exhibitions: %#v", knowledge)
+	}
+}
+
 func TestEncryptedSettingRoundTrip(t *testing.T) {
 	server := Server{config: Config{SessionSecret: "test-session-secret-that-is-long-enough"}}
 	plaintext := []byte(`{"api_key":"secret-key-1234","limit":100}`)
@@ -374,6 +409,14 @@ func TestInitialWizardAndInformationRouting(t *testing.T) {
 	}
 	if isInformationQuery("주차 가능한 전시를 추천해줘") {
 		t.Fatal("recommendation request should remain eligible for the map")
+	}
+	for _, query := range []string{"끝난 전시 중 사진 전시가 있었어?", "전시의 종류를 알려줘", "예전에 열렸던 전시"} {
+		if !isHistoricalKnowledgeQuery(query) {
+			t.Fatalf("historical knowledge query was not detected: %q", query)
+		}
+		if decision, ok := initialWizardDecision(query+" 추천해줘", nil); ok || decision.Mode != "" {
+			t.Fatalf("historical knowledge query must not open the recommendation wizard: %#v", decision)
+		}
 	}
 }
 

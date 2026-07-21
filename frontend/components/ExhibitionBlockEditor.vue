@@ -25,6 +25,12 @@ type EditorBlock = TextBlock | MediaBlock
 interface EditorField {
   label: string
   blocks: EditorBlock[]
+  period?: {
+    startDate: string
+    startTime: string
+    endDate: string
+    endTime: string
+  }
 }
 
 interface PendingEditorMedia {
@@ -36,6 +42,7 @@ interface PendingEditorMedia {
 const props = defineProps<{
   modelValue: string
   uploadMedia?: (file: File, type: MediaKind) => Promise<{ url: string }>
+  submission?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -57,6 +64,18 @@ const uploading = ref(false)
 const dockVisible = ref(false)
 const dockLeft = ref(18)
 
+const submissionBaseLabels = ['전시명', '장소', '전시내용']
+const submissionCategories = [
+  { label: '전시기간', title: '전시기간 및 시간' },
+  { label: '링크', title: '링크 넣기' },
+  { label: '작가(작가소개)', title: '작가소개' },
+  { label: '관람료', title: '관람료' },
+  { label: '맛집', title: '주변맛집' },
+  { label: '찾아가는 방법', title: '교통' },
+  { label: '주차정보', title: '주차' },
+  { label: '도슨트(전시장 가이드) 유무', title: '도슨트 유무' },
+]
+
 function newID(prefix: string) {
   nextID += 1
   return `${prefix}-${Date.now().toString(36)}-${nextID}`
@@ -64,7 +83,10 @@ function newID(prefix: string) {
 
 function parseDocument(body: string): EditorField[] {
   const values = new Map(parseExhibitionFields(body).map(field => [field.label, field.value]))
-  return exhibitionLabels.map((label, fieldIndex) => {
+  const labels = props.submission
+    ? exhibitionLabels.filter(label => submissionBaseLabels.includes(label) || body.includes(`${label}:`))
+    : exhibitionLabels
+  return labels.map((label, fieldIndex) => {
     const value = values.get(label) || ''
     const blocks: EditorBlock[] = parseExhibitionContent(value).map((segment, segmentIndex) => {
       if (segment.type === 'image' || segment.type === 'video') {
@@ -85,13 +107,35 @@ function parseDocument(body: string): EditorField[] {
     if (!blocks.length || blocks[blocks.length - 1]?.type !== 'text') {
       blocks.push({ id: `field-${fieldIndex}-text-end`, type: 'text', text: '' })
     }
-    return { label, blocks }
+    return {
+      label,
+      blocks,
+      period: label === '전시기간' ? parsePeriod(value) : undefined,
+    }
   })
+}
+
+function parsePeriod(value: string) {
+  const matches = [...value.matchAll(/(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}))?/g)]
+  return {
+    startDate: matches[0]?.[1] || '',
+    startTime: matches[0]?.[2] || '',
+    endDate: matches[1]?.[1] || '',
+    endTime: matches[1]?.[2] || '',
+  }
+}
+
+function serializePeriod(field: EditorField) {
+  const period = field.period
+  if (!period) return ''
+  const start = [period.startDate, period.startTime].filter(Boolean).join(' ')
+  const end = [period.endDate, period.endTime].filter(Boolean).join(' ')
+  return [start, end].filter(Boolean).join(' ~ ')
 }
 
 function serializeDocument() {
   return `${fields.value.map((field) => {
-    const value = field.blocks
+    const value = field.label === '전시기간' && props.submission ? serializePeriod(field) : field.blocks
       .map((block) => {
         if (block.type === 'text') return block.text.trim()
         const marker = block.type === 'image' ? '!' : '@'
@@ -121,10 +165,19 @@ function emitPendingMedia() {
 
 function rememberCursor(block: TextBlock, event: Event) {
   activeTextID.value = block.id
-  cursorByBlock.set(block.id, (event.target as HTMLTextAreaElement).selectionStart)
+  cursorByBlock.set(block.id, (event.target as HTMLTextAreaElement | HTMLInputElement).selectionStart || 0)
 }
 
 function locateInsertionTarget() {
+  if (props.submission) {
+    const fieldIndex = fields.value.findIndex(field => field.label === '전시내용')
+    const blocks = fields.value[fieldIndex]?.blocks || []
+    const blockIndex = Math.max(0, blocks.findLastIndex(block => block.type === 'text'))
+    const block = blocks[blockIndex]
+    if (block?.type === 'text') activeTextID.value = block.id
+    return { fieldIndex: Math.max(0, fieldIndex), blockIndex }
+  }
+
   for (let fieldIndex = 0; fieldIndex < fields.value.length; fieldIndex++) {
     const blockIndex = fields.value[fieldIndex]?.blocks.findIndex(block => block.id === activeTextID.value) ?? -1
     if (blockIndex >= 0) return { fieldIndex, blockIndex }
@@ -139,9 +192,41 @@ function locateInsertionTarget() {
 }
 
 const activeFieldLabel = computed(() => {
+  if (props.submission) return '본문'
   const { fieldIndex } = locateInsertionTarget()
   return fields.value[fieldIndex]?.label || '전시내용'
 })
+
+function fieldTitle(label: string) {
+  if (label === '전시내용' && props.submission) return '본문'
+  return submissionCategories.find(category => category.label === label)?.title || label
+}
+
+function addCategory(label: string) {
+  menuOpen.value = false
+  if (fields.value.some(field => field.label === label)) {
+    emit('notice', `${fieldTitle(label)} 항목은 이미 추가되어 있습니다.`)
+    return
+  }
+  fields.value.push({
+    label,
+    blocks: [{ id: newID('text'), type: 'text', text: '' }],
+    period: label === '전시기간' ? parsePeriod('') : undefined,
+  })
+  syncDocument()
+  emit('notice', `${fieldTitle(label)} 항목을 추가했습니다.`)
+}
+
+function removeField(fieldIndex: number) {
+  const field = fields.value[fieldIndex]
+  if (!field || submissionBaseLabels.includes(field.label)) return
+  for (const block of field.blocks) {
+    if (block.type !== 'text' && block.localURL) URL.revokeObjectURL(block.url)
+  }
+  fields.value.splice(fieldIndex, 1)
+  syncDocument()
+  emit('notice', `${fieldTitle(field.label)} 항목을 삭제했습니다.`)
+}
 
 function mediaCount(type?: MediaKind) {
   return fields.value.reduce((count, field) => count + field.blocks.filter(block => block.type !== 'text' && (!type || block.type === type)).length, 0)
@@ -275,13 +360,17 @@ watch(() => props.modelValue, (value) => {
 
 onMounted(() => {
   if (!editorRoot.value) return
-  editorObserver = new IntersectionObserver(([entry]) => {
-    dockVisible.value = Boolean(entry?.isIntersecting)
-    updateDockPosition()
-  })
-  editorObserver.observe(editorRoot.value)
-  window.addEventListener('resize', updateDockPosition)
-  window.addEventListener('scroll', updateDockPosition, { passive: true })
+  if (props.submission) {
+    dockVisible.value = true
+  } else {
+    editorObserver = new IntersectionObserver(([entry]) => {
+      dockVisible.value = Boolean(entry?.isIntersecting)
+      updateDockPosition()
+    })
+    editorObserver.observe(editorRoot.value)
+    window.addEventListener('resize', updateDockPosition)
+    window.addEventListener('scroll', updateDockPosition, { passive: true })
+  }
   document.addEventListener('pointerdown', closeMenuFromOutside)
   document.addEventListener('keydown', closeMenuFromEscape)
   updateDockPosition()
@@ -300,17 +389,66 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="editorRoot" class="block-editor">
-    <section v-for="(field, fieldIndex) in fields" :key="field.label" class="block-field">
-      <label class="block-field-label">{{ field.label }}</label>
+  <div ref="editorRoot" class="block-editor" :class="{ 'is-submission': props.submission }">
+    <section
+      v-for="(field, fieldIndex) in fields"
+      :key="field.label"
+      class="block-field"
+      :class="{ 'is-body': props.submission && field.label === '전시내용' }"
+    >
+      <header class="block-field-header">
+        <label class="block-field-label">{{ fieldTitle(field.label) }}</label>
+        <button
+          v-if="props.submission && !submissionBaseLabels.includes(field.label)"
+          type="button"
+          class="block-field-remove"
+          :aria-label="`${fieldTitle(field.label)} 항목 삭제`"
+          @click="removeField(fieldIndex)"
+        >
+          <X :size="15" />
+        </button>
+      </header>
 
-      <template v-for="(block, blockIndex) in field.blocks" :key="block.id">
+      <div v-if="props.submission && field.label === '전시기간' && field.period" class="period-grid">
+        <label>
+          <span>시작일</span>
+          <input v-model="field.period.startDate" type="date" @input="syncDocument">
+        </label>
+        <label>
+          <span>시작 시간</span>
+          <input v-model="field.period.startTime" type="time" @input="syncDocument">
+        </label>
+        <label>
+          <span>종료일</span>
+          <input v-model="field.period.endDate" type="date" @input="syncDocument">
+        </label>
+        <label>
+          <span>종료 시간</span>
+          <input v-model="field.period.endTime" type="time" @input="syncDocument">
+        </label>
+      </div>
+
+      <template v-for="(block, blockIndex) in field.blocks" v-else :key="block.id">
+        <input
+          v-if="block.type === 'text' && props.submission && field.label !== '전시내용'"
+          v-model="block.text"
+          class="block-line-input"
+          :type="field.label === '링크' ? 'url' : 'text'"
+          :placeholder="field.label === '링크' ? 'https://' : `${fieldTitle(field.label)}을 입력하세요.`"
+          :aria-label="`${fieldTitle(field.label)} 내용`"
+          @input="syncDocument"
+          @focus="rememberCursor(block, $event)"
+          @click="rememberCursor(block, $event)"
+          @keyup="rememberCursor(block, $event)"
+          @select="rememberCursor(block, $event)"
+        >
         <textarea
-          v-if="block.type === 'text'"
+          v-else-if="block.type === 'text'"
           v-model="block.text"
           class="block-text"
+          :class="{ 'is-free-body': props.submission && field.label === '전시내용' }"
           :aria-label="`${field.label} 내용`"
-          rows="2"
+          :rows="props.submission && field.label === '전시내용' ? 10 : 2"
           spellcheck="true"
           @input="syncDocument"
           @focus="rememberCursor(block, $event)"
@@ -349,29 +487,45 @@ onBeforeUnmount(() => {
         v-if="dockVisible"
         ref="mediaDock"
         class="media-dock"
-        :style="{ left: `${dockLeft}px` }"
+        :class="{ 'is-embedded': props.submission }"
+        :style="props.submission ? undefined : { left: `${dockLeft}px` }"
         @pointerdown.stop
       >
         <Transition name="menu-fade">
-          <div v-if="menuOpen" class="media-menu" role="menu" aria-label="본문 미디어 넣기">
-            <small>{{ activeFieldLabel }}의 현재 커서 위치</small>
+          <div v-if="menuOpen" class="media-menu" role="menu" :aria-label="props.submission ? '내용 추가' : '본문 미디어 넣기'">
+            <small>{{ props.submission ? '추가할 내용을 고르세요.' : `${activeFieldLabel}의 현재 커서 위치` }}</small>
             <label role="menuitem">
               <ImageIcon :size="17" />
-              <span>이미지 넣기</span>
+              <span>사진 넣기</span>
               <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" :disabled="uploading" @change="insertMedia('image', $event)">
             </label>
             <label role="menuitem">
               <Video :size="17" />
-              <span>영상 넣기</span>
+              <span>동영상 넣기</span>
               <input type="file" accept="video/mp4,video/webm,video/quicktime,.mov" :disabled="uploading" @change="insertMedia('video', $event)">
             </label>
+            <template v-if="props.submission">
+              <button
+                v-for="category in submissionCategories"
+                :key="category.label"
+                type="button"
+                class="category-option"
+                role="menuitem"
+                :disabled="fields.some(field => field.label === category.label)"
+                @click="addCategory(category.label)"
+              >
+                <Plus :size="16" />
+                <span>{{ category.title }}</span>
+                <small v-if="fields.some(field => field.label === category.label)">추가됨</small>
+              </button>
+            </template>
           </div>
         </Transition>
 
         <button
           class="media-dock-button"
           type="button"
-          :aria-label="menuOpen ? '미디어 메뉴 닫기' : '현재 커서 위치에 이미지 또는 영상 넣기'"
+          :aria-label="menuOpen ? '추가 메뉴 닫기' : (props.submission ? '내용 추가' : '현재 커서 위치에 이미지 또는 영상 넣기')"
           :aria-expanded="menuOpen"
           :disabled="uploading"
           @click="menuOpen = !menuOpen"
@@ -391,6 +545,11 @@ onBeforeUnmount(() => {
   background: var(--paper);
 }
 
+.block-editor.is-submission {
+  position: relative;
+  margin-bottom: 64px;
+}
+
 .block-field {
   padding: 22px clamp(20px, 4vw, 42px) 18px;
   border-right: 1px solid var(--line-strong);
@@ -398,12 +557,39 @@ onBeforeUnmount(() => {
   border-left: 1px solid var(--line-strong);
 }
 
+.block-field-header {
+  min-height: 28px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
 .block-field-label {
   display: block;
-  margin-bottom: 12px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.block-field-remove {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  margin-top: -7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.block-field-remove:hover {
+  background: var(--canvas);
+  color: var(--ink);
 }
 
 .block-text {
@@ -423,6 +609,61 @@ onBeforeUnmount(() => {
 
 .block-text:focus {
   color: var(--ink);
+}
+
+.block-text.is-free-body {
+  min-height: 280px;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.9;
+}
+
+.block-line-input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+}
+
+.block-line-input:focus {
+  border-color: var(--ink);
+}
+
+.period-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+}
+
+.period-grid label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.period-grid input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  outline: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.period-grid input:focus {
+  border-color: var(--ink);
 }
 
 .block-media {
@@ -498,6 +739,14 @@ onBeforeUnmount(() => {
   z-index: 70;
 }
 
+.media-dock.is-embedded {
+  position: absolute;
+  right: 18px;
+  bottom: -27px;
+  left: auto !important;
+  z-index: 20;
+}
+
 .media-dock-button {
   width: 52px;
   height: 52px;
@@ -521,17 +770,19 @@ onBeforeUnmount(() => {
 }
 
 .media-menu {
-  width: 194px;
+  width: 248px;
+  max-height: min(520px, 68vh);
   position: absolute;
   right: 0;
   bottom: 64px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid var(--line-strong);
   background: var(--paper);
   box-shadow: 0 16px 44px rgba(36, 31, 22, 0.12);
 }
 
-.media-menu small {
+.media-menu > small {
   display: block;
   padding: 13px 15px 10px;
   border-bottom: 1px solid var(--line);
@@ -540,7 +791,8 @@ onBeforeUnmount(() => {
   line-height: 1.45;
 }
 
-.media-menu label {
+.media-menu label,
+.category-option {
   min-height: 48px;
   display: flex;
   align-items: center;
@@ -553,13 +805,34 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.media-menu label:last-child {
+.category-option {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  text-align: left;
+}
+
+.category-option small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.media-menu > :last-child {
   border-bottom: 0;
 }
 
-.media-menu label:hover {
+.media-menu label:hover,
+.category-option:hover:not(:disabled) {
   background: var(--canvas);
   color: var(--ink);
+}
+
+.category-option:disabled {
+  opacity: 0.38;
+  cursor: default;
 }
 
 .media-menu input {
@@ -598,6 +871,14 @@ onBeforeUnmount(() => {
     margin-right: -4px;
     margin-left: -4px;
     padding: 10px;
+  }
+
+  .period-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .block-text.is-free-body {
+    min-height: 230px;
   }
 
   .media-dock-button {

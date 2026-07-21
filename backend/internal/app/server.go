@@ -172,7 +172,7 @@ func (s *Server) routes() http.Handler {
 	router.Route("/api/v1", func(api chi.Router) {
 		api.Get("/posts", s.listPublishedPosts)
 		api.Get("/posts/{slug}", s.getPublishedPost)
-		api.Get("/map/posts", s.listPublishedPosts)
+		api.Get("/map/posts", s.listMapPosts)
 		api.Post("/search/ai", s.aiSearch)
 		api.Post("/submissions", s.createSubmission)
 
@@ -210,11 +210,22 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listPublishedPosts(w http.ResponseWriter, r *http.Request) {
-	posts, err := s.queryPosts(r.Context(), r.URL.Query().Get("q"), "published", r.URL.Query().Get("bbox"), 1000)
+	posts, err := s.queryPosts(r.Context(), r.URL.Query().Get("q"), "published", r.URL.Query().Get("bbox"), 2000)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "게시글을 불러오지 못했습니다")
 		return
 	}
+	posts = publicIndexExhibitions(posts, time.Now(), 1000)
+	writeJSON(w, http.StatusOK, searchResponse{Items: posts, Total: len(posts)})
+}
+
+func (s *Server) listMapPosts(w http.ResponseWriter, r *http.Request) {
+	posts, err := s.queryPosts(r.Context(), r.URL.Query().Get("q"), "published", r.URL.Query().Get("bbox"), 2000)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "지도 게시글을 불러오지 못했습니다")
+		return
+	}
+	posts = currentExhibitions(posts, time.Now(), 1000)
 	writeJSON(w, http.StatusOK, searchResponse{Items: posts, Total: len(posts)})
 }
 
@@ -226,6 +237,10 @@ func (s *Server) getPublishedPost(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "게시글을 불러오지 못했습니다")
+		return
+	}
+	if !isPublicIndexExhibitionAt(post, time.Now()) {
+		writeError(w, http.StatusNotFound, "게시글을 찾을 수 없습니다")
 		return
 	}
 	writeJSON(w, http.StatusOK, post)
@@ -250,19 +265,41 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		settings, configured, settingsErr := s.loadNVIDIAAISettings(r.Context())
 		if settingsErr == nil && configured && s.allowAIRequest(r) {
-			candidateQuery := ""
 			conversationQuery := aiConversationQuery(input.Query, input.History)
-			if conversationRequestsRecommendation(input.Query, input.History) {
+			knowledgeQuery := isHistoricalKnowledgeQuery(conversationQuery)
+			recommendationQuery := conversationRequestsRecommendation(input.Query, input.History) && !knowledgeQuery
+			candidateQuery := ""
+			candidateBBox := ""
+			if recommendationQuery {
 				candidateQuery = strings.Join(recommendationCandidateTerms(conversationQuery), " ")
+				candidateBBox = input.BBox
+			} else {
+				candidateQuery = conversationQuery
 			}
-			candidates, candidateErr := s.queryPosts(r.Context(), candidateQuery, "published", input.BBox, 80)
+			candidates, candidateErr := s.queryPosts(r.Context(), candidateQuery, "published", candidateBBox, 1000)
 			if candidateErr == nil && len(candidates) == 0 && candidateQuery != "" {
-				candidates, candidateErr = s.queryPosts(r.Context(), "", "published", input.BBox, 80)
+				candidates, candidateErr = s.queryPosts(r.Context(), "", "published", candidateBBox, 1000)
+			}
+			if recommendationQuery {
+				candidates = currentExhibitions(candidates, time.Now(), 80)
+				if candidateErr == nil && len(candidates) == 0 && candidateQuery != "" {
+					candidates, candidateErr = s.queryPosts(r.Context(), "", "published", candidateBBox, 1000)
+					candidates = currentExhibitions(candidates, time.Now(), 80)
+				}
+			} else if knowledgeQuery {
+				candidates = historicalKnowledgeExhibitions(candidates, time.Now(), 80)
+			} else if len(candidates) > 80 {
+				candidates = candidates[:80]
 			}
 			if candidateErr == nil && len(candidates) > 0 {
 				curation, curationErr := curateWithNVIDIA(r.Context(), settings, input.Query, input.History, candidates)
 				if curationErr == nil {
 					posts := postsByRecommendedIDs(candidates, curation.RecommendedIDs)
+					if curation.Mode == "map" {
+						posts = currentExhibitions(posts, time.Now(), 12)
+					} else {
+						posts = publicIndexExhibitions(posts, time.Now(), 6)
+					}
 					writeJSON(w, http.StatusOK, searchResponse{
 						Items: posts, Total: len(posts), Interpretation: curation.Answer, AIPowered: true,
 						Mode: curation.Mode, Question: curation.Question, Options: curation.Options,
@@ -274,7 +311,11 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	posts, err := s.queryPosts(r.Context(), aiConversationQuery(input.Query, input.History), "published", input.BBox, 100)
+	fallbackBBox := ""
+	if conversationRequestsRecommendation(input.Query, input.History) && !isHistoricalKnowledgeQuery(aiConversationQuery(input.Query, input.History)) {
+		fallbackBBox = input.BBox
+	}
+	posts, err := s.queryPosts(r.Context(), aiConversationQuery(input.Query, input.History), "published", fallbackBBox, 100)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "검색 중 문제가 발생했습니다")
 		return
@@ -287,6 +328,11 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	fallback := fallbackAIDecision(input.Query, input.History, posts)
+	if fallback.Mode == "map" {
+		posts = currentExhibitions(posts, time.Now(), 100)
+	} else {
+		posts = publicIndexExhibitions(posts, time.Now(), 100)
+	}
 	writeJSON(w, http.StatusOK, searchResponse{
 		Items:          posts,
 		Total:          len(posts),
@@ -1010,7 +1056,7 @@ func parseTemplate(body string) (map[string]string, string, string, float64, flo
 func templateLabels() []string {
 	return []string{
 		"전시명", "작가(작가소개)", "관람료", "전시기간", "장소", "도슨트(전시장 가이드) 유무",
-		"찾아가는 방법", "주차정보", "전시내용", "굿즈샵정보", "주변에 함께 볼 만한 전시",
+		"찾아가는 방법", "주차정보", "전시내용", "링크", "굿즈샵정보", "주변에 함께 볼 만한 전시",
 		"주변에 볼거리", "맛집", "감상평", "페르소나 정보입력",
 	}
 }

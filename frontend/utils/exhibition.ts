@@ -8,6 +8,7 @@ export const exhibitionLabels = [
   '찾아가는 방법',
   '주차정보',
   '전시내용',
+  '링크',
   '굿즈샵정보',
   '주변에 함께 볼 만한 전시',
   '주변에 볼거리',
@@ -17,6 +18,8 @@ export const exhibitionLabels = [
 ] as const
 
 export const exhibitionTemplate = `${exhibitionLabels.map(label => `${label}:\n`).join('\n')}\n`
+
+export const submissionTemplate = `전시명:\n\n장소:\n\n전시내용:\n`
 
 export interface ExhibitionField {
   label: string
@@ -31,9 +34,9 @@ interface ExhibitionDateSource {
 export function isExhibitionExpired(post: ExhibitionDateSource, now = new Date()) {
   const period = post.metadata['전시기간'] ||
     parseExhibitionFields(post.body_markdown).find(field => field.label === '전시기간')?.value || ''
-  const periodDates = period.match(/\d{4}[./-]\d{1,2}[./-]\d{1,2}/g) || []
+  const periodDates = period.match(/\d{4}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2}/g) || []
   const rawEndDate = post.metadata['전시종료일'] || periodDates[periodDates.length - 1] || ''
-  const parts = rawEndDate.replace(/[./]/g, '-').split('-').map(Number)
+  const parts = rawEndDate.replace(/\s/g, '').replace(/[./]/g, '-').split('-').map(Number)
   if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) return false
 
   const [year, month, day] = parts

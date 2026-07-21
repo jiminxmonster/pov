@@ -76,19 +76,23 @@ type aiConversationTurn struct {
 }
 
 type curationCandidate struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Address     string `json:"address"`
-	Period      string `json:"period,omitempty"`
-	Fee         string `json:"fee,omitempty"`
-	Artist      string `json:"artist,omitempty"`
-	Description string `json:"description,omitempty"`
-	Docent      string `json:"docent,omitempty"`
-	Parking     string `json:"parking,omitempty"`
-	Nearby      string `json:"nearby,omitempty"`
-	Food        string `json:"food,omitempty"`
-	Review      string `json:"review,omitempty"`
-	Persona     string `json:"persona,omitempty"`
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Address       string `json:"address"`
+	Category      string `json:"category,omitempty"`
+	Period        string `json:"period,omitempty"`
+	EndDate       string `json:"end_date,omitempty"`
+	Expired       bool   `json:"expired"`
+	KnowledgeOnly bool   `json:"knowledge_only"`
+	Fee           string `json:"fee,omitempty"`
+	Artist        string `json:"artist,omitempty"`
+	Description   string `json:"description,omitempty"`
+	Docent        string `json:"docent,omitempty"`
+	Parking       string `json:"parking,omitempty"`
+	Nearby        string `json:"nearby,omitempty"`
+	Food          string `json:"food,omitempty"`
+	Review        string `json:"review,omitempty"`
+	Persona       string `json:"persona,omitempty"`
 }
 
 func (s *Server) getNVIDIAAISettings(w http.ResponseWriter, r *http.Request) {
@@ -252,21 +256,26 @@ func testNVIDIAConnection(ctx context.Context, settings nvidiaAISettings) error 
 
 func curateWithNVIDIA(ctx context.Context, settings nvidiaAISettings, query string, history []aiConversationTurn, posts []Post) (nvidiaCuration, error) {
 	candidates := make([]curationCandidate, 0, len(posts))
+	now := time.Now()
 	for _, post := range posts {
 		candidates = append(candidates, curationCandidate{
-			ID:          post.ID,
-			Title:       post.Title,
-			Address:     post.Address,
-			Period:      post.Metadata["전시기간"],
-			Fee:         post.Metadata["관람료"],
-			Artist:      post.Metadata["작가(작가소개)"],
-			Description: limitRunes(post.Metadata["전시내용"], 700),
-			Docent:      post.Metadata["도슨트(전시장 가이드) 유무"],
-			Parking:     post.Metadata["주차정보"],
-			Nearby:      firstNonEmpty(post.Metadata["주변에 함께 볼 만한 전시"], post.Metadata["주변에 볼거리"]),
-			Food:        post.Metadata["맛집"],
-			Review:      post.Metadata["감상평"],
-			Persona:     post.Metadata["페르소나 정보입력"],
+			ID:            post.ID,
+			Title:         post.Title,
+			Address:       post.Address,
+			Category:      post.Metadata["분류"],
+			Period:        post.Metadata["전시기간"],
+			EndDate:       post.Metadata["전시종료일"],
+			Expired:       isExhibitionExpiredAt(post, now),
+			KnowledgeOnly: !isPublicIndexExhibitionAt(post, now),
+			Fee:           post.Metadata["관람료"],
+			Artist:        post.Metadata["작가(작가소개)"],
+			Description:   limitRunes(post.Metadata["전시내용"], 700),
+			Docent:        post.Metadata["도슨트(전시장 가이드) 유무"],
+			Parking:       post.Metadata["주차정보"],
+			Nearby:        firstNonEmpty(post.Metadata["주변에 함께 볼 만한 전시"], post.Metadata["주변에 볼거리"]),
+			Food:          post.Metadata["맛집"],
+			Review:        post.Metadata["감상평"],
+			Persona:       post.Metadata["페르소나 정보입력"],
 		})
 	}
 	candidateJSON, err := json.Marshal(candidates)
@@ -281,6 +290,7 @@ func curateWithNVIDIA(ctx context.Context, settings nvidiaAISettings, query stri
 3. chat: 전시 정보, 관람 방법, 장소, 비용, 일정, 링크처럼 대화 안에서 직접 설명하는 편이 나을 때
 
 불필요한 역질문은 하지 말고 명확한 질문은 map을 우선하세요. 반드시 제공된 후보의 사실만 사용하고 존재하지 않는 전시나 링크를 만들지 마세요.
+expired가 true인 전시는 현재 관람 추천이나 map에 절대 포함하지 마세요. knowledge_only가 true인 과거 전시는 사용자가 과거 전시, 전시 유형, 예전에 열렸던 사례를 물을 때 chat 답변의 지식으로만 활용하고 recommended_ids에는 넣지 마세요.
 map이면 recommended_ids에 추천 순서대로 최대 12개 id를 넣고 answer에 추천 이유를 2~4문장으로 쓰세요.
 wizard이면 question에 한 가지 질문만 쓰고 options에는 서로 겹치지 않는 짧은 선택지 2~4개를 넣으세요. answer는 질문이 필요한 이유를 한 문장으로 쓰세요.
 chat이면 answer에 자연스러운 한국어 2~5문장으로 직접 답하고 관련 전시가 있으면 recommended_ids에 최대 6개 id를 넣으세요.
@@ -299,7 +309,7 @@ chat이면 answer에 자연스러운 한국어 2~5문장으로 직접 답하고 
 		return nvidiaCuration{}, err
 	}
 	curation.Mode = normalizedAIMode(curation.Mode)
-	if isInformationQuery(query) {
+	if isInformationQuery(query) || isHistoricalKnowledgeQuery(aiConversationQuery(query, history)) {
 		curation.Mode = "chat"
 	}
 	recommendationLimit := 12
@@ -383,7 +393,7 @@ func fallbackAIDecision(query string, history []aiConversationTurn, posts []Post
 			break
 		}
 	}
-	if isInformationQuery(lower) {
+	if isInformationQuery(lower) || isHistoricalKnowledgeQuery(aiConversationQuery(query, history)) {
 		answer := interpretQuery(query)
 		if len(posts) == 0 {
 			answer = "등록된 전시 정보에서는 바로 확인할 내용을 찾지 못했어요. 전시명이나 지역을 조금 더 구체적으로 알려주세요."
@@ -395,7 +405,7 @@ func fallbackAIDecision(query string, history []aiConversationTurn, posts []Post
 
 func initialWizardDecision(query string, history []aiConversationTurn) (nvidiaCuration, bool) {
 	lower := strings.ToLower(strings.TrimSpace(query))
-	if len(history) != 0 || !containsAny(lower, "추천해", "추천 해", "뭐 볼", "무엇을 볼", "어디 갈", "볼만한 전시") ||
+	if len(history) != 0 || isHistoricalKnowledgeQuery(lower) || !containsAny(lower, "추천해", "추천 해", "뭐 볼", "무엇을 볼", "어디 갈", "볼만한 전시") ||
 		containsAny(lower, "연인", "데이트", "가족", "아이", "혼자", "무료", "주차", "성수", "종로", "강남", "홍대", "이번 주", "주말", "오늘") {
 		return nvidiaCuration{}, false
 	}
@@ -412,7 +422,15 @@ func isInformationQuery(query string) bool {
 	}
 	return containsAny(lower,
 		"알려", "어떻게", "언제", "어디", "관람료", "주차", "도슨트", "링크", "홈페이지", "정보", "설명",
-		"누구", "무엇", "어떤", "뭐야", "어때", "왜", "가능", "있어", "없어", "가도 돼", "해도 돼",
+		"누구", "무엇", "어떤", "뭐야", "어때", "왜", "가능", "있어", "없어", "가도 돼", "해도 돼", "종류",
+	)
+}
+
+func isHistoricalKnowledgeQuery(query string) bool {
+	lower := strings.ToLower(strings.TrimSpace(query))
+	return containsAny(lower,
+		"끝난 전시", "종료된 전시", "지난 전시", "과거 전시", "예전 전시", "열렸던 전시", "했었던 전시",
+		"전시의 종류", "전시 종류", "있었다", "있었어", "있었나", "예전에", "과거에는",
 	)
 }
 
@@ -465,7 +483,7 @@ func sourceLinksForPosts(posts []Post) []searchLink {
 	links := make([]searchLink, 0, min(len(posts), 6))
 	seen := make(map[string]bool, len(posts))
 	for _, post := range posts {
-		url := safeHTTPURL(post.Metadata["원문 링크"])
+		url := safeHTTPURL(firstNonEmpty(post.Metadata["원문 링크"], post.Metadata["링크"]))
 		if url == "" || seen[url] {
 			continue
 		}
