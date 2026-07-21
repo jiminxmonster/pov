@@ -57,7 +57,6 @@ let editorObserver: IntersectionObserver | undefined
 const cursorByBlock = new Map<string, number>()
 const editorRoot = ref<HTMLElement | null>(null)
 const mediaDock = ref<HTMLElement | null>(null)
-const fields = ref<EditorField[]>(parseDocument(props.modelValue))
 const activeTextID = ref('')
 const menuOpen = ref(false)
 const uploading = ref(false)
@@ -75,6 +74,7 @@ const submissionCategories = [
   { label: '주차정보', title: '주차' },
   { label: '도슨트(전시장 가이드) 유무', title: '도슨트 유무' },
 ]
+const fields = ref<EditorField[]>(parseDocument(props.modelValue))
 
 function newID(prefix: string) {
   nextID += 1
