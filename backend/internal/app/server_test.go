@@ -236,6 +236,20 @@ func TestExhibitionLifecycleVisibility(t *testing.T) {
 	}
 }
 
+func TestSubmissionDraftAllowsBodyWithoutTitleOrPlace(t *testing.T) {
+	title, ok := submissionDraftTitle("전시내용:\n오늘 본 전시에서 긴 여운을 느꼈다.")
+	if !ok || title != "사용자 관람시점" {
+		t.Fatalf("body-only submission must enter review: title=%q ok=%v", title, ok)
+	}
+	if _, ok := submissionDraftTitle("전시내용:\n짧음"); ok {
+		t.Fatal("submission body shorter than five runes must be rejected")
+	}
+	title, ok = submissionDraftTitle("전시명:\n빛의 방\n\n전시내용:\n본문이 충분합니다.")
+	if !ok || title != "빛의 방" {
+		t.Fatalf("provided title must be preserved: title=%q ok=%v", title, ok)
+	}
+}
+
 func TestEncryptedSettingRoundTrip(t *testing.T) {
 	server := Server{config: Config{SessionSecret: "test-session-secret-that-is-long-enough"}}
 	plaintext := []byte(`{"api_key":"secret-key-1234","limit":100}`)

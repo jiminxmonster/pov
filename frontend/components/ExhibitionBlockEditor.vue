@@ -63,8 +63,10 @@ const uploading = ref(false)
 const dockVisible = ref(false)
 const dockLeft = ref(18)
 
-const submissionBaseLabels = ['전시명', '장소', '전시내용']
+const submissionBaseLabels = ['전시내용']
 const submissionCategories = [
+  { label: '전시명', title: '전시명' },
+  { label: '장소', title: '장소' },
   { label: '전시기간', title: '전시기간 및 시간' },
   { label: '링크', title: '링크 넣기' },
   { label: '작가(작가소개)', title: '작가소개' },

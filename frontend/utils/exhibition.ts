@@ -19,7 +19,7 @@ export const exhibitionLabels = [
 
 export const exhibitionTemplate = `${exhibitionLabels.map(label => `${label}:\n`).join('\n')}\n`
 
-export const submissionTemplate = `전시명:\n\n장소:\n\n전시내용:\n`
+export const submissionTemplate = `전시내용:\n`
 
 export interface ExhibitionField {
   label: string

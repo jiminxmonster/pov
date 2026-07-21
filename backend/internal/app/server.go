@@ -441,14 +441,9 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rawBody := strings.TrimSpace(r.FormValue("body_markdown"))
-	if len([]rune(rawBody)) < 20 {
-		writeError(w, http.StatusBadRequest, "전시 정보를 조금 더 입력해 주세요")
-		return
-	}
-
-	_, title, address, _, _ := parseTemplate(rawBody)
-	if title == "제목 확인 필요" || address == "" {
-		writeError(w, http.StatusBadRequest, "전시명과 장소를 입력해 주세요")
+	title, validBody := submissionDraftTitle(rawBody)
+	if !validBody {
+		writeError(w, http.StatusBadRequest, "본문을 조금 더 입력해 주세요")
 		return
 	}
 
@@ -463,7 +458,10 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	metadata, title, address, latitude, longitude := parseTemplate(body)
+	metadata, parsedTitle, address, latitude, longitude := parseTemplate(body)
+	if parsedTitle != "제목 확인 필요" {
+		title = parsedTitle
+	}
 	metadataBytes, _ := json.Marshal(metadata)
 
 	imageURL := firstInlineImageURL(rawBody, inlineImageURLs)
@@ -484,6 +482,17 @@ func (s *Server) createSubmission(w http.ResponseWriter, r *http.Request) {
 		"id":      post.ID,
 		"message": "전시 정보가 접수되었습니다. 운영자 확인 후 공개됩니다.",
 	})
+}
+
+func submissionDraftTitle(body string) (string, bool) {
+	metadata, title, _, _, _ := parseTemplate(body)
+	if len([]rune(strings.TrimSpace(metadata["전시내용"]))) < 5 {
+		return "", false
+	}
+	if title == "제목 확인 필요" {
+		title = "사용자 관람시점"
+	}
+	return title, true
 }
 
 func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
