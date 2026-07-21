@@ -63,10 +63,6 @@ async function submitExhibition() {
         <h1>당신의 관람시점</h1>
       </div>
 
-      <div class="submission-body-heading">
-        <span>전시 정보</span>
-        <small>본문을 자유롭게 적고 끝의 +로 필요한 정보를 더하세요.</small>
-      </div>
       <ExhibitionBlockEditor
         v-model="body"
         submission

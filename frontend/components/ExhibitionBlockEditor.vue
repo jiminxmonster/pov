@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
       class="block-field"
       :class="{ 'is-body': props.submission && field.label === '전시내용' }"
     >
-      <header class="block-field-header">
+      <header v-if="!(props.submission && field.label === '전시내용')" class="block-field-header">
         <label class="block-field-label">{{ fieldTitle(field.label) }}</label>
         <button
           v-if="props.submission && !submissionBaseLabels.includes(field.label)"
@@ -549,7 +549,7 @@ onBeforeUnmount(() => {
 
 .block-editor.is-submission {
   position: relative;
-  margin-bottom: 64px;
+  margin-bottom: 0;
 }
 
 .block-field {
@@ -557,6 +557,11 @@ onBeforeUnmount(() => {
   border-right: 1px solid var(--line-strong);
   border-bottom: 1px solid var(--line);
   border-left: 1px solid var(--line-strong);
+}
+
+.block-editor.is-submission .block-field.is-body {
+  min-height: 320px;
+  padding: 22px 86px 18px clamp(20px, 4vw, 42px);
 }
 
 .block-field-header {
@@ -743,10 +748,16 @@ onBeforeUnmount(() => {
 
 .media-dock.is-embedded {
   position: absolute;
+  top: 18px;
   right: 18px;
-  bottom: -27px;
+  bottom: auto;
   left: auto !important;
   z-index: 20;
+}
+
+.media-dock.is-embedded .media-menu {
+  top: 64px;
+  bottom: auto;
 }
 
 .media-dock-button {
@@ -881,6 +892,11 @@ onBeforeUnmount(() => {
 
   .block-text.is-free-body {
     min-height: 230px;
+  }
+
+  .block-editor.is-submission .block-field.is-body {
+    min-height: 270px;
+    padding: 20px 76px 16px 18px;
   }
 
   .media-dock-button {
