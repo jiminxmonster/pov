@@ -280,10 +280,10 @@ onMounted(initializePage)
 
     <Transition name="fade">
       <div v-if="selected" class="detail-backdrop" @click.self="selected = null">
+        <button class="icon-button detail-close" type="button" aria-label="닫기" @click="selected = null">
+          <X :size="20" />
+        </button>
         <article class="detail-sheet" :class="{ 'is-expired': selectedExpired }" aria-modal="true" role="dialog" :aria-label="selected.title">
-          <button class="icon-button detail-close" type="button" aria-label="닫기" @click="selected = null">
-            <X :size="20" />
-          </button>
           <div v-if="selectedExpired" class="detail-expired-stamp-layer" aria-hidden="true">
             <img :src="expiredStampUrl" alt="">
           </div>

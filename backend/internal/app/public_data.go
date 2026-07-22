@@ -126,10 +126,7 @@ type kcisaAPIResponse struct {
 		ResultMsg  string `json:"resultMsg" xml:"resultMsg"`
 	} `json:"header" xml:"header"`
 	Body struct {
-		Items      kcisaExhibitionItems `json:"items" xml:"items"`
-		NumOfRows  int                  `json:"numOfRows" xml:"numOfRows"`
-		PageNo     int                  `json:"pageNo" xml:"pageNo"`
-		TotalCount int                  `json:"totalCount" xml:"totalCount"`
+		Items kcisaExhibitionItems `json:"items" xml:"items"`
 	} `json:"body" xml:"body"`
 }
 

@@ -219,9 +219,9 @@ func TestDecodeAndConvertKCISAEvent(t *testing.T) {
 					"PERIOD": "2026.07.01 ~ 2026.09.20",
 					"EVENT_PERIOD": "10:00 ~ 18:00"
 				}]},
-				"numOfRows": 1,
-				"pageNo": 1,
-				"totalCount": 1
+				"numOfRows": "1",
+				"pageNo": "1",
+				"totalCount": "1"
 			}
 		}
 	}`
