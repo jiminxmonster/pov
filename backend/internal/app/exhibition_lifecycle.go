@@ -86,8 +86,8 @@ func publicIndexExhibitions(posts []Post, now time.Time, limit int) []Post {
 			current = append(current, post)
 		}
 	}
-	current = append(current, ended...)
 	current = append(current, undated...)
+	current = append(current, ended...)
 	if len(current) > limit {
 		current = current[:limit]
 	}

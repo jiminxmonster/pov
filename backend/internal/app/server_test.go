@@ -283,7 +283,7 @@ func TestExhibitionLifecycleVisibility(t *testing.T) {
 	for _, item := range visible {
 		visibleIDs = append(visibleIDs, item.ID)
 	}
-	if len(visible) != 4 || strings.Join(visibleIDs, ",") != "active,recent-ended,one-month-boundary,no-date" {
+	if len(visible) != 4 || strings.Join(visibleIDs, ",") != "active,no-date,recent-ended,one-month-boundary" {
 		t.Fatalf("unexpected public index exhibitions: %#v", visible)
 	}
 	current := currentExhibitions(posts, now, 20)
