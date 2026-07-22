@@ -73,17 +73,21 @@ func filterExhibitions(posts []Post, limit int, keep func(Post) bool) []Post {
 func publicIndexExhibitions(posts []Post, now time.Time, limit int) []Post {
 	current := make([]Post, 0, min(len(posts), limit))
 	ended := make([]Post, 0, min(len(posts), limit))
+	undated := make([]Post, 0, min(len(posts), limit))
 	for _, post := range posts {
 		if !isPublicIndexExhibitionAt(post, now) {
 			continue
 		}
-		if isExhibitionExpiredAt(post, now) {
+		if _, ok := exhibitionEndDate(post); !ok {
+			undated = append(undated, post)
+		} else if isExhibitionExpiredAt(post, now) {
 			ended = append(ended, post)
 		} else {
 			current = append(current, post)
 		}
 	}
 	current = append(current, ended...)
+	current = append(current, undated...)
 	if len(current) > limit {
 		current = current[:limit]
 	}
@@ -91,14 +95,25 @@ func publicIndexExhibitions(posts []Post, now time.Time, limit int) []Post {
 }
 
 func currentExhibitions(posts []Post, now time.Time, limit int) []Post {
-	return filterExhibitions(posts, limit, func(post Post) bool {
-		return !isExhibitionExpiredAt(post, now)
-	})
+	current := make([]Post, 0, min(len(posts), limit))
+	undated := make([]Post, 0, min(len(posts), limit))
+	for _, post := range posts {
+		if _, ok := exhibitionEndDate(post); !ok {
+			undated = append(undated, post)
+		} else if !isExhibitionExpiredAt(post, now) {
+			current = append(current, post)
+		}
+	}
+	current = append(current, undated...)
+	if len(current) > limit {
+		current = current[:limit]
+	}
+	return current
 }
 
 func currentMapExhibitions(posts []Post, now time.Time, limit int) []Post {
-	return filterExhibitions(posts, limit, func(post Post) bool {
-		return !isExhibitionExpiredAt(post, now) && hasMappableLocation(post)
+	return filterExhibitions(currentExhibitions(posts, now, len(posts)), limit, func(post Post) bool {
+		return hasMappableLocation(post)
 	})
 }
 

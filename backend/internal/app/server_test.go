@@ -283,7 +283,7 @@ func TestExhibitionLifecycleVisibility(t *testing.T) {
 	for _, item := range visible {
 		visibleIDs = append(visibleIDs, item.ID)
 	}
-	if len(visible) != 4 || strings.Join(visibleIDs, ",") != "active,no-date,recent-ended,one-month-boundary" {
+	if len(visible) != 4 || strings.Join(visibleIDs, ",") != "active,recent-ended,one-month-boundary,no-date" {
 		t.Fatalf("unexpected public index exhibitions: %#v", visible)
 	}
 	current := currentExhibitions(posts, now, 20)
@@ -291,10 +291,11 @@ func TestExhibitionLifecycleVisibility(t *testing.T) {
 		t.Fatalf("unexpected map exhibitions: %#v", current)
 	}
 	mapPosts := currentMapExhibitions([]Post{
-		{ID: "mapped", Latitude: 37.5, Longitude: 127.0, Metadata: map[string]string{}},
+		{ID: "mapped-undated", Latitude: 37.5, Longitude: 127.0, Metadata: map[string]string{}},
+		{ID: "mapped-scheduled", Latitude: 37.5, Longitude: 127.0, Metadata: map[string]string{"전시종료일": "2026-08-01"}},
 		{ID: "unmapped", Latitude: 0, Longitude: 0, Metadata: map[string]string{"지도표시": "아니오"}},
 	}, now, 20)
-	if len(mapPosts) != 1 || mapPosts[0].ID != "mapped" {
+	if len(mapPosts) != 2 || mapPosts[0].ID != "mapped-scheduled" || mapPosts[1].ID != "mapped-undated" {
 		t.Fatalf("map must only include verified coordinates: %#v", mapPosts)
 	}
 	if !isExhibitionExpiredAt(posts[5], now) || isPublicIndexExhibitionAt(posts[5], now) {
