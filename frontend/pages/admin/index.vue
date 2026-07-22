@@ -160,7 +160,9 @@ async function saveKCISADataSettings() {
     })
     applyKCISADataSettings(result)
     kcisaDataKey.value = ''
-    kcisaSettingsNotice.value = `${result.message} ${result.synced_count || 0}건을 반영했습니다.`
+    kcisaSettingsNotice.value = typeof result.synced_count === 'number'
+      ? `${result.message} ${result.synced_count}건을 반영했습니다.`
+      : result.message || '서비스키를 저장했습니다.'
     await loadAdminPosts()
   } catch (error) {
     kcisaSettingsNotice.value = apiErrorMessage(error, '문화공공데이터 서비스키를 저장하지 못했습니다.')
@@ -178,7 +180,9 @@ async function syncKCISAData() {
       credentials: 'include',
     })
     applyKCISADataSettings(result)
-    kcisaSettingsNotice.value = `${result.message} ${result.synced_count || 0}건을 반영했습니다.`
+    kcisaSettingsNotice.value = typeof result.synced_count === 'number'
+      ? `${result.message} ${result.synced_count}건을 반영했습니다.`
+      : result.message || '동기화 요청을 처리했습니다.'
     await loadAdminPosts()
   } catch (error) {
     kcisaSettingsNotice.value = apiErrorMessage(error, '문화공공데이터를 동기화하지 못했습니다.')

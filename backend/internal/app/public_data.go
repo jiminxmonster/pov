@@ -133,6 +133,10 @@ type kcisaAPIResponse struct {
 	} `json:"body" xml:"body"`
 }
 
+type kcisaAPIErrorResponse struct {
+	Message string `json:"message"`
+}
+
 type publicExhibition struct {
 	Slug         string
 	Title        string
@@ -226,7 +230,7 @@ func (s *Server) syncKCISAExhibitionsWithSettings(ctx context.Context, settings 
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return 0, fmt.Errorf("문화공공데이터 API 응답 코드 %d", response.StatusCode)
+		return 0, decodeKCISAHTTPError(response.StatusCode, io.LimitReader(response.Body, 16<<10))
 	}
 
 	payload, err := decodeKCISAResponse(io.LimitReader(response.Body, 32<<20))
@@ -275,6 +279,17 @@ func (s *Server) syncKCISAExhibitionsWithSettings(ctx context.Context, settings 
 		return 0, err
 	}
 	return count, nil
+}
+
+func decodeKCISAHTTPError(statusCode int, reader io.Reader) error {
+	data, _ := io.ReadAll(reader)
+	var payload kcisaAPIErrorResponse
+	if json.Unmarshal(data, &payload) == nil {
+		if message := cleanKCISAText(payload.Message); message != "" {
+			return fmt.Errorf("문화공공데이터 API 응답 코드 %d: %s", statusCode, message)
+		}
+	}
+	return fmt.Errorf("문화공공데이터 API 응답 코드 %d", statusCode)
 }
 
 func decodeKCISAResponse(reader io.Reader) (kcisaAPIResponse, error) {

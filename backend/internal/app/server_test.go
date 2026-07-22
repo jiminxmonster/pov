@@ -247,6 +247,23 @@ func TestDecodeAndConvertKCISAEvent(t *testing.T) {
 	}
 }
 
+func TestKCISAProviderErrorIsActionableAndSafe(t *testing.T) {
+	err := decodeKCISAHTTPError(http.StatusForbidden, strings.NewReader(`{
+		"message":"API Key is not valid or is expired / revoked.",
+		"http_status_code":403
+	}`))
+	if !strings.Contains(err.Error(), "API Key is not valid") {
+		t.Fatalf("provider error detail was lost: %v", err)
+	}
+	message := kcisaDataSyncErrorMessage(err)
+	if !strings.Contains(message, "유효하지 않거나 아직 활성화되지 않았습니다") {
+		t.Fatalf("unexpected operator message: %q", message)
+	}
+	if strings.Contains(message, "invalid-debug-key") {
+		t.Fatal("operator error must never expose a service key")
+	}
+}
+
 func TestExhibitionLifecycleVisibility(t *testing.T) {
 	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.FixedZone("KST", 9*60*60))
 	post := func(id, endDate string) Post {

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -136,17 +137,19 @@ func (s *Server) updateKCISADataSettings(w http.ResponseWriter, r *http.Request)
 	}
 	settings := normalizeKCISADataSettings(publicDataSettings{APIKey: apiKey, Limit: input.Limit})
 
-	count, err := s.syncKCISAExhibitionsWithSettings(r.Context(), settings)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "서비스키 또는 문화공공데이터 API 연결 상태를 확인해 주세요")
-		return
-	}
 	if err := s.storeKCISADataSettings(r.Context(), settings); err != nil {
 		writeError(w, http.StatusInternalServerError, "문화공공데이터 서비스키를 저장하지 못했습니다")
 		return
 	}
 
 	payload := publicDataSettingsPayload(settings, true)
+	count, err := s.syncKCISAExhibitionsWithSettings(r.Context(), settings)
+	if err != nil {
+		log.Printf("문화공공데이터 통합 전시 수동 동기화 실패: %v", err)
+		payload.Message = "서비스키는 저장했습니다. " + kcisaDataSyncErrorMessage(err)
+		writeJSON(w, http.StatusOK, payload)
+		return
+	}
 	payload.SyncedCount = count
 	payload.Message = "서비스키를 저장하고 통합 전시 데이터를 동기화했습니다."
 	writeJSON(w, http.StatusOK, payload)
@@ -160,13 +163,34 @@ func (s *Server) syncKCISADataNow(w http.ResponseWriter, r *http.Request) {
 	}
 	count, err := s.syncKCISAExhibitionsWithSettings(r.Context(), settings)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "서비스키 또는 문화공공데이터 API 연결 상태를 확인해 주세요")
+		log.Printf("문화공공데이터 통합 전시 수동 동기화 실패: %v", err)
+		writeError(w, http.StatusBadGateway, kcisaDataSyncErrorMessage(err))
 		return
 	}
 	payload := publicDataSettingsPayload(settings, stored)
 	payload.SyncedCount = count
 	payload.Message = "문화공공데이터 통합 전시를 지금 동기화했습니다."
 	writeJSON(w, http.StatusOK, payload)
+}
+
+func kcisaDataSyncErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	if strings.Contains(message, "API Key is not valid") || strings.Contains(message, "응답 코드 401") || strings.Contains(message, "응답 코드 403") {
+		return "서비스키가 유효하지 않거나 아직 활성화되지 않았습니다. 문화공공데이터광장에서 발급된 키인지 확인해 주세요."
+	}
+	if strings.Contains(message, "응답을 읽지 못했습니다") {
+		return "문화공공데이터 응답 형식이 예상과 달라 수집하지 못했습니다."
+	}
+	if strings.Contains(message, "연결하지 못했습니다") || strings.Contains(message, "context deadline exceeded") {
+		return "문화공공데이터 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요."
+	}
+	if strings.Contains(message, "API 오류:") {
+		return strings.TrimSpace(strings.SplitN(message, "API 오류:", 2)[1])
+	}
+	return "문화공공데이터를 동기화하지 못했습니다. 서버 기록에서 공급자 응답을 확인해 주세요."
 }
 
 func (s *Server) loadPublicDataSettings(ctx context.Context) (publicDataSettings, bool, error) {
