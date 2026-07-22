@@ -754,10 +754,13 @@ textarea:focus-visible {
 
 .detail-image {
   width: 100%;
-  max-height: 340px;
+  max-height: min(70vh, 620px);
+  display: block;
   margin-bottom: 42px;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
   border: 1px solid var(--line);
+  background: var(--canvas);
 }
 
 .detail-address {
