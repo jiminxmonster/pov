@@ -48,6 +48,9 @@ type Config struct {
 	SeoulOpenDataURL   string
 	SeoulOpenDataKey   string
 	SeoulOpenDataLimit int
+	KCISAOpenDataURL   string
+	KCISAOpenDataKey   string
+	KCISAOpenDataLimit int
 }
 
 type Server struct {
@@ -109,6 +112,9 @@ func ConfigFromEnv() Config {
 		SeoulOpenDataURL:   envOr("SEOUL_OPEN_DATA_URL", "http://openapi.seoul.go.kr:8088"),
 		SeoulOpenDataKey:   envOr("SEOUL_OPEN_DATA_KEY", "sample"),
 		SeoulOpenDataLimit: envIntOr("SEOUL_OPEN_DATA_LIMIT", 1000),
+		KCISAOpenDataURL:   envOr("KCISA_OPEN_DATA_URL", "https://api.kcisa.kr/openapi/API_CCA_145/request"),
+		KCISAOpenDataKey:   envOr("KCISA_OPEN_DATA_KEY", ""),
+		KCISAOpenDataLimit: envIntOr("KCISA_OPEN_DATA_LIMIT", 1000),
 	}
 }
 
@@ -185,6 +191,9 @@ func (s *Server) routes() http.Handler {
 				private.Get("/settings/public-data", s.getPublicDataSettings)
 				private.Put("/settings/public-data", s.updatePublicDataSettings)
 				private.Post("/settings/public-data/sync", s.syncPublicDataNow)
+				private.Get("/settings/kcisa-data", s.getKCISADataSettings)
+				private.Put("/settings/kcisa-data", s.updateKCISADataSettings)
+				private.Post("/settings/kcisa-data/sync", s.syncKCISADataNow)
 				private.Get("/settings/ai", s.getNVIDIAAISettings)
 				private.Put("/settings/ai", s.updateNVIDIAAISettings)
 				private.Post("/settings/ai/test", s.testNVIDIAAISettings)
@@ -225,7 +234,7 @@ func (s *Server) listMapPosts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "지도 게시글을 불러오지 못했습니다")
 		return
 	}
-	posts = currentExhibitions(posts, time.Now(), 1000)
+	posts = currentMapExhibitions(posts, time.Now(), 1000)
 	writeJSON(w, http.StatusOK, searchResponse{Items: posts, Total: len(posts)})
 }
 

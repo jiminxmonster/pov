@@ -201,6 +201,52 @@ func TestConvertSeoulEvent(t *testing.T) {
 	}
 }
 
+func TestDecodeAndConvertKCISAEvent(t *testing.T) {
+	response := `{
+		"response": {
+			"header": {"resultCode": "0000", "resultMsg": "정상 처리"},
+			"body": {
+				"items": {"item": [{
+					"TITLE": "<b>통합 전시</b>",
+					"CNTC_INSTT_NM": "국립현대미술관",
+					"DESCRIPTION": "전시 소개 &amp; 안내",
+					"IMAGE_OBJECT": "https://example.com/cover.jpg",
+					"LOCAL_ID": "exhibition-42",
+					"URL": "https://example.com/exhibitions/42",
+					"EVENT_SITE": "국립현대미술관 서울",
+					"AUTHOR": "홍길동",
+					"CHARGE": "무료",
+					"PERIOD": "2026.07.01 ~ 2026.09.20",
+					"EVENT_PERIOD": "10:00 ~ 18:00"
+				}]},
+				"numOfRows": 1,
+				"pageNo": 1,
+				"totalCount": 1
+			}
+		}
+	}`
+	payload, err := decodeKCISAResponse(strings.NewReader(response))
+	if err != nil || len(payload.Body.Items.Item) != 1 {
+		t.Fatalf("decode KCISA response: %#v, %v", payload, err)
+	}
+	exhibition, ok := convertKCISAEvent(payload.Body.Items.Item[0])
+	if !ok {
+		t.Fatal("expected KCISA exhibition to be converted")
+	}
+	if exhibition.Title != "통합 전시" || exhibition.ImageURL != "https://example.com/cover.jpg" {
+		t.Fatalf("unexpected KCISA exhibition: %#v", exhibition)
+	}
+	if exhibition.Metadata["전시시작일"] != "2026-07-01" || exhibition.Metadata["전시종료일"] != "2026-09-20" {
+		t.Fatalf("unexpected KCISA dates: %#v", exhibition.Metadata)
+	}
+	if exhibition.Metadata["지도표시"] != "아니오" || exhibition.Latitude != 0 || exhibition.Longitude != 0 {
+		t.Fatal("KCISA data without coordinates must not create an inaccurate map marker")
+	}
+	if !strings.Contains(exhibition.BodyMarkdown, kcisaOpenDataSource) || !strings.Contains(exhibition.BodyMarkdown, "전시 소개 & 안내") {
+		t.Fatalf("KCISA source or description is missing: %q", exhibition.BodyMarkdown)
+	}
+}
+
 func TestExhibitionLifecycleVisibility(t *testing.T) {
 	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.FixedZone("KST", 9*60*60))
 	post := func(id, endDate string) Post {
@@ -226,6 +272,13 @@ func TestExhibitionLifecycleVisibility(t *testing.T) {
 	current := currentExhibitions(posts, now, 20)
 	if len(current) != 2 || current[0].ID != "active" || current[1].ID != "no-date" {
 		t.Fatalf("unexpected map exhibitions: %#v", current)
+	}
+	mapPosts := currentMapExhibitions([]Post{
+		{ID: "mapped", Latitude: 37.5, Longitude: 127.0, Metadata: map[string]string{}},
+		{ID: "unmapped", Latitude: 0, Longitude: 0, Metadata: map[string]string{"지도표시": "아니오"}},
+	}, now, 20)
+	if len(mapPosts) != 1 || mapPosts[0].ID != "mapped" {
+		t.Fatalf("map must only include verified coordinates: %#v", mapPosts)
 	}
 	if !isExhibitionExpiredAt(posts[5], now) || isPublicIndexExhibitionAt(posts[5], now) {
 		t.Fatal("period fallback must be retained as knowledge only")
@@ -279,6 +332,10 @@ func TestPublicDataSettingsHelpers(t *testing.T) {
 	}
 	if !validPublicDataKey("valid_key-1234") || validPublicDataKey("invalid/key") {
 		t.Fatal("public data key validation is incorrect")
+	}
+	kcisa := normalizeKCISADataSettings(publicDataSettings{APIKey: "encoded%2Bkey%2Fvalue", Limit: 5000})
+	if kcisa.APIKey != "encoded+key/value" || kcisa.Limit != 1000 || !validKCISADataKey(kcisa.APIKey) {
+		t.Fatalf("unexpected KCISA settings: %#v", kcisa)
 	}
 }
 
@@ -370,6 +427,13 @@ func TestNamedSettingEncryptionUsesSeparateContext(t *testing.T) {
 	}
 	if _, err := server.openNamedSetting(publicDataSettingName, encrypted); err == nil {
 		t.Fatal("setting encrypted for NVIDIA must not decrypt in public-data context")
+	}
+	kcisaEncrypted, err := server.sealNamedSetting(kcisaPublicDataSettingName, []byte("kcisa-secret"))
+	if err != nil {
+		t.Fatalf("seal KCISA setting: %v", err)
+	}
+	if _, err := server.openNamedSetting(publicDataSettingName, kcisaEncrypted); err == nil {
+		t.Fatal("KCISA setting must use a separate encryption context")
 	}
 }
 

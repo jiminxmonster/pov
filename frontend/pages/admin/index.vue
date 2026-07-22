@@ -18,6 +18,13 @@ const publicDataStorage = ref('environment')
 const settingsSaving = ref(false)
 const settingsSyncing = ref(false)
 const settingsNotice = ref('')
+const kcisaDataKey = ref('')
+const kcisaDataLimit = ref(1000)
+const kcisaDataMaskedKey = ref('')
+const kcisaDataStorage = ref('environment')
+const kcisaSettingsSaving = ref(false)
+const kcisaSettingsSyncing = ref(false)
+const kcisaSettingsNotice = ref('')
 const aiAPIKey = ref('')
 const aiModel = ref('nvidia/nemotron-3-nano-30b-a3b')
 const aiMaskedKey = ref('')
@@ -122,6 +129,61 @@ async function syncPublicData() {
     settingsNotice.value = apiErrorMessage(error, '공공데이터를 동기화하지 못했습니다.')
   } finally {
     settingsSyncing.value = false
+  }
+}
+
+function applyKCISADataSettings(result: PublicDataSettingsResponse) {
+  kcisaDataMaskedKey.value = result.masked_key
+  kcisaDataLimit.value = result.limit
+  kcisaDataStorage.value = result.storage
+}
+
+async function loadKCISADataSettings() {
+  try {
+    const result = await $fetch<PublicDataSettingsResponse>(`${config.public.apiBase}/admin/settings/kcisa-data`, {
+      credentials: 'include',
+    })
+    applyKCISADataSettings(result)
+  } catch (error) {
+    kcisaSettingsNotice.value = apiErrorMessage(error, '문화공공데이터 설정을 불러오지 못했습니다.')
+  }
+}
+
+async function saveKCISADataSettings() {
+  kcisaSettingsSaving.value = true
+  kcisaSettingsNotice.value = ''
+  try {
+    const result = await $fetch<PublicDataSettingsResponse>(`${config.public.apiBase}/admin/settings/kcisa-data`, {
+      method: 'PUT',
+      credentials: 'include',
+      body: { api_key: kcisaDataKey.value, limit: kcisaDataLimit.value },
+    })
+    applyKCISADataSettings(result)
+    kcisaDataKey.value = ''
+    kcisaSettingsNotice.value = `${result.message} ${result.synced_count || 0}건을 반영했습니다.`
+    await loadAdminPosts()
+  } catch (error) {
+    kcisaSettingsNotice.value = apiErrorMessage(error, '문화공공데이터 서비스키를 저장하지 못했습니다.')
+  } finally {
+    kcisaSettingsSaving.value = false
+  }
+}
+
+async function syncKCISAData() {
+  kcisaSettingsSyncing.value = true
+  kcisaSettingsNotice.value = ''
+  try {
+    const result = await $fetch<PublicDataSettingsResponse>(`${config.public.apiBase}/admin/settings/kcisa-data/sync`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    applyKCISADataSettings(result)
+    kcisaSettingsNotice.value = `${result.message} ${result.synced_count || 0}건을 반영했습니다.`
+    await loadAdminPosts()
+  } catch (error) {
+    kcisaSettingsNotice.value = apiErrorMessage(error, '문화공공데이터를 동기화하지 못했습니다.')
+  } finally {
+    kcisaSettingsSyncing.value = false
   }
 }
 
@@ -257,6 +319,7 @@ async function logout() {
 onMounted(() => {
   loadAdminPosts()
   loadPublicDataSettings()
+  loadKCISADataSettings()
   loadAISettings()
 })
 </script>
@@ -304,6 +367,44 @@ onMounted(() => {
           </button>
         </div>
         <p class="settings-notice" aria-live="polite">{{ settingsNotice || '입력한 인증키는 암호화되어 저장되며 화면에는 다시 표시되지 않습니다.' }}</p>
+      </form>
+    </section>
+
+    <section class="admin-settings kcisa-settings" aria-labelledby="kcisa-data-title">
+      <div class="admin-settings-copy">
+        <p class="eyebrow">NATIONAL EXHIBITIONS</p>
+        <h1 id="kcisa-data-title">문화공공데이터광장</h1>
+        <p>문화체육관광부 산하 주요 기관의 통합 전시를 목록·상세·AI 검색 지식에 반영합니다.</p>
+        <span v-if="kcisaDataMaskedKey" class="settings-key-status">
+          <KeyRound :size="15" /> {{ kcisaDataMaskedKey }} · 최대 {{ kcisaDataLimit }}건 · {{ kcisaDataStorage === 'database' ? '운영자 저장' : '서버 기본값' }}
+        </span>
+      </div>
+
+      <form class="admin-settings-form" @submit.prevent="saveKCISADataSettings">
+        <label class="settings-key-field">
+          <span>문화공공데이터 서비스키</span>
+          <input
+            v-model="kcisaDataKey"
+            type="password"
+            autocomplete="off"
+            :placeholder="kcisaDataMaskedKey ? `새 서비스키 입력 · 현재 ${kcisaDataMaskedKey}` : '문화공공데이터광장에서 발급받은 키'"
+          >
+        </label>
+        <label class="settings-limit-field">
+          <span>가져올 전시 수</span>
+          <input v-model.number="kcisaDataLimit" type="number" min="1" max="1000" inputmode="numeric">
+        </label>
+        <div class="settings-actions">
+          <button class="pill-button secondary" type="button" :disabled="!kcisaDataMaskedKey || kcisaSettingsSaving || kcisaSettingsSyncing" @click="syncKCISAData">
+            <LoaderCircle v-if="kcisaSettingsSyncing" :size="17" class="spin" />
+            <RefreshCw v-else :size="17" /> 지금 동기화
+          </button>
+          <button class="pill-button" type="submit" :disabled="kcisaSettingsSaving || kcisaSettingsSyncing">
+            <LoaderCircle v-if="kcisaSettingsSaving" :size="17" class="spin" />
+            <Save v-else :size="17" /> 저장하고 동기화
+          </button>
+        </div>
+        <p class="settings-notice" aria-live="polite">{{ kcisaSettingsNotice || '서비스키는 암호화 저장됩니다. 이 API는 좌표를 제공하지 않아 확인되지 않은 위치는 지도에 임의로 표시하지 않습니다.' }}</p>
       </form>
     </section>
 
@@ -431,6 +532,8 @@ onMounted(() => {
             </div>
             <div class="admin-row-chips">
               <span v-if="post.source_type === 'community'" class="status-chip">사용자 제보</span>
+              <span v-else-if="post.source_type === 'kcisa-open-data'" class="status-chip">문화공공데이터</span>
+              <span v-else-if="post.source_type === 'seoul-open-data'" class="status-chip">서울 공공데이터</span>
               <span class="status-chip">{{ post.status }}</span>
             </div>
           </summary>

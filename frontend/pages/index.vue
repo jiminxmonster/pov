@@ -22,7 +22,14 @@ const currentBbox = ref('')
 const tapHistory = ref<number[]>([])
 const selectedFields = computed(() => selected.value ? parseExhibitionFields(selected.value.body_markdown) : [])
 const selectedExpired = computed(() => selected.value ? isExhibitionExpired(selected.value) : false)
-const mapPosts = computed(() => posts.value.filter(post => !isExhibitionExpired(post)))
+const mapPosts = computed(() => posts.value.filter(post => (
+  !isExhibitionExpired(post)
+  && post.metadata['지도표시'] !== '아니오'
+  && post.latitude >= 33
+  && post.latitude <= 39
+  && post.longitude >= 124
+  && post.longitude <= 132
+)))
 
 useSeoMeta({
   title: '전지적관람시점',

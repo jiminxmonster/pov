@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -17,8 +18,10 @@ import (
 )
 
 const publicDataSettingName = "seoul_open_data"
+const kcisaPublicDataSettingName = "kcisa_open_data"
 
 var publicDataKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+var serviceKeyPattern = regexp.MustCompile(`^[^\s\x00-\x1f\x7f]+$`)
 
 type publicDataSettings struct {
 	APIKey string `json:"api_key"`
@@ -100,6 +103,72 @@ func (s *Server) syncPublicDataNow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, payload)
 }
 
+func (s *Server) getKCISADataSettings(w http.ResponseWriter, r *http.Request) {
+	settings, stored, err := s.loadKCISADataSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "문화공공데이터 설정을 불러오지 못했습니다")
+		return
+	}
+	writeJSON(w, http.StatusOK, publicDataSettingsPayload(settings, stored))
+}
+
+func (s *Server) updateKCISADataSettings(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		APIKey string `json:"api_key"`
+		Limit  int    `json:"limit"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		return
+	}
+
+	apiKey := normalizeKCISAServiceKey(input.APIKey)
+	if apiKey == "" {
+		current, _, err := s.loadKCISADataSettings(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "기존 문화공공데이터 인증키를 불러오지 못했습니다")
+			return
+		}
+		apiKey = current.APIKey
+	}
+	if !validKCISADataKey(apiKey) {
+		writeError(w, http.StatusBadRequest, "문화공공데이터광장 서비스키 형식을 확인해 주세요")
+		return
+	}
+	settings := normalizeKCISADataSettings(publicDataSettings{APIKey: apiKey, Limit: input.Limit})
+
+	count, err := s.syncKCISAExhibitionsWithSettings(r.Context(), settings)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "서비스키 또는 문화공공데이터 API 연결 상태를 확인해 주세요")
+		return
+	}
+	if err := s.storeKCISADataSettings(r.Context(), settings); err != nil {
+		writeError(w, http.StatusInternalServerError, "문화공공데이터 서비스키를 저장하지 못했습니다")
+		return
+	}
+
+	payload := publicDataSettingsPayload(settings, true)
+	payload.SyncedCount = count
+	payload.Message = "서비스키를 저장하고 통합 전시 데이터를 동기화했습니다."
+	writeJSON(w, http.StatusOK, payload)
+}
+
+func (s *Server) syncKCISADataNow(w http.ResponseWriter, r *http.Request) {
+	settings, stored, err := s.loadKCISADataSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "문화공공데이터 설정을 불러오지 못했습니다")
+		return
+	}
+	count, err := s.syncKCISAExhibitionsWithSettings(r.Context(), settings)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "서비스키 또는 문화공공데이터 API 연결 상태를 확인해 주세요")
+		return
+	}
+	payload := publicDataSettingsPayload(settings, stored)
+	payload.SyncedCount = count
+	payload.Message = "문화공공데이터 통합 전시를 지금 동기화했습니다."
+	writeJSON(w, http.StatusOK, payload)
+}
+
 func (s *Server) loadPublicDataSettings(ctx context.Context) (publicDataSettings, bool, error) {
 	fallback := normalizePublicDataSettings(publicDataSettings{
 		APIKey: strings.TrimSpace(s.config.SeoulOpenDataKey),
@@ -143,6 +212,52 @@ func (s *Server) storePublicDataSettings(ctx context.Context, settings publicDat
 		VALUES ($1, $2)
 		ON CONFLICT (name) DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, updated_at = NOW()
 	`, publicDataSettingName, encrypted)
+	return err
+}
+
+func (s *Server) loadKCISADataSettings(ctx context.Context) (publicDataSettings, bool, error) {
+	fallback := normalizeKCISADataSettings(publicDataSettings{
+		APIKey: normalizeKCISAServiceKey(s.config.KCISAOpenDataKey),
+		Limit:  s.config.KCISAOpenDataLimit,
+	})
+
+	var encrypted []byte
+	err := s.db.QueryRow(ctx, `SELECT value_encrypted FROM app_settings WHERE name = $1`, kcisaPublicDataSettingName).Scan(&encrypted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fallback, false, nil
+	}
+	if err != nil {
+		return publicDataSettings{}, false, err
+	}
+	plaintext, err := s.openNamedSetting(kcisaPublicDataSettingName, encrypted)
+	if err != nil {
+		return publicDataSettings{}, true, err
+	}
+	var settings publicDataSettings
+	if err := json.Unmarshal(plaintext, &settings); err != nil {
+		return publicDataSettings{}, true, err
+	}
+	settings = normalizeKCISADataSettings(settings)
+	if settings.APIKey == "" {
+		return fallback, false, nil
+	}
+	return settings, true, nil
+}
+
+func (s *Server) storeKCISADataSettings(ctx context.Context, settings publicDataSettings) error {
+	payload, err := json.Marshal(normalizeKCISADataSettings(settings))
+	if err != nil {
+		return err
+	}
+	encrypted, err := s.sealNamedSetting(kcisaPublicDataSettingName, payload)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO app_settings (name, value_encrypted)
+		VALUES ($1, $2)
+		ON CONFLICT (name) DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, updated_at = NOW()
+	`, kcisaPublicDataSettingName, encrypted)
 	return err
 }
 
@@ -204,6 +319,32 @@ func normalizePublicDataSettings(settings publicDataSettings) publicDataSettings
 func validPublicDataKey(value string) bool {
 	value = strings.TrimSpace(value)
 	return len(value) >= 4 && len(value) <= 128 && publicDataKeyPattern.MatchString(value)
+}
+
+func normalizeKCISADataSettings(settings publicDataSettings) publicDataSettings {
+	settings.APIKey = normalizeKCISAServiceKey(settings.APIKey)
+	if settings.Limit < 1 {
+		settings.Limit = 1000
+	}
+	if settings.Limit > 1000 {
+		settings.Limit = 1000
+	}
+	return settings
+}
+
+func normalizeKCISAServiceKey(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.Contains(value, "%") {
+		if decoded, err := url.QueryUnescape(value); err == nil {
+			value = decoded
+		}
+	}
+	return value
+}
+
+func validKCISADataKey(value string) bool {
+	value = strings.TrimSpace(value)
+	return len(value) >= 4 && len(value) <= 512 && serviceKeyPattern.MatchString(value)
 }
 
 func publicDataSettingsPayload(settings publicDataSettings, stored bool) publicDataSettingsResponse {

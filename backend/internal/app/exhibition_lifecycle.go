@@ -96,6 +96,19 @@ func currentExhibitions(posts []Post, now time.Time, limit int) []Post {
 	})
 }
 
+func currentMapExhibitions(posts []Post, now time.Time, limit int) []Post {
+	return filterExhibitions(posts, limit, func(post Post) bool {
+		return !isExhibitionExpiredAt(post, now) && hasMappableLocation(post)
+	})
+}
+
+func hasMappableLocation(post Post) bool {
+	if strings.EqualFold(strings.TrimSpace(post.Metadata["지도표시"]), "아니오") {
+		return false
+	}
+	return post.Latitude >= 33 && post.Latitude <= 39 && post.Longitude >= 124 && post.Longitude <= 132
+}
+
 func historicalKnowledgeExhibitions(posts []Post, now time.Time, limit int) []Post {
 	past := make([]Post, 0, min(len(posts), limit))
 	current := make([]Post, 0, min(len(posts), limit))
