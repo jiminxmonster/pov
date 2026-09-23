@@ -357,21 +357,21 @@ func TestPublicDataSettingsHelpers(t *testing.T) {
 	}
 }
 
-func TestNVIDIASettingsAndCurationHelpers(t *testing.T) {
-	settings := normalizeNVIDIAAISettings(nvidiaAISettings{})
-	if settings.Model != defaultNVIDIAModel {
-		t.Fatalf("unexpected default NVIDIA model: %q", settings.Model)
+func TestOpenAISettingsAndCurationHelpers(t *testing.T) {
+	settings := normalizeOpenAIAISettings(openaiAISettings{})
+	if settings.Model != defaultOpenAIModel {
+		t.Fatalf("unexpected default OpenAI model: %q", settings.Model)
 	}
-	if !validNVIDIAAPIKey("nvapi-test-key-123456") || validNVIDIAAPIKey("key with spaces") {
-		t.Fatal("NVIDIA API key validation is incorrect")
+	if !validOpenAIAPIKey("sk-test-key-123456") || validOpenAIAPIKey("key with spaces") || validOpenAIAPIKey("nvapi-test-key-123456") {
+		t.Fatal("OpenAI API key validation is incorrect")
 	}
-	if !validNVIDIAModel("nvidia/nemotron-3-nano-30b-a3b") || validNVIDIAModel("bad model name") {
-		t.Fatal("NVIDIA model validation is incorrect")
+	if !validOpenAIModel("gpt-5.6-luna") || validOpenAIModel("bad model name") {
+		t.Fatal("OpenAI model validation is incorrect")
 	}
 
-	curation, err := parseNVIDIACuration("```json\n{\"mode\":\"map\",\"answer\":\"여름 데이트 전시입니다.\",\"recommended_ids\":[\"post-2\",\"post-1\"]}\n```")
+	curation, err := parseOpenAICuration("```json\n{\"mode\":\"map\",\"answer\":\"여름 데이트 전시입니다.\",\"recommended_ids\":[\"post-2\",\"post-1\"]}\n```")
 	if err != nil {
-		t.Fatalf("parse NVIDIA curation: %v", err)
+		t.Fatalf("parse OpenAI curation: %v", err)
 	}
 	posts := []Post{{ID: "post-1", Title: "첫 전시"}, {ID: "post-2", Title: "둘째 전시"}}
 	ids := validRecommendedIDs(append(curation.RecommendedIDs, "post-2", "missing"), posts, 12)
@@ -381,9 +381,9 @@ func TestNVIDIASettingsAndCurationHelpers(t *testing.T) {
 	}
 }
 
-func TestParseNVIDIACurationFindsValidObjectAfterModelPreamble(t *testing.T) {
+func TestParseOpenAICurationFindsValidObjectAfterModelPreamble(t *testing.T) {
 	content := "검토 형식: {not-json}\n최종 답변:\n```json\n{\"mode\":\"chat\",\"answer\":\"관람료는 무료입니다.\",\"recommended_ids\":[\"post-1\"]}\n```"
-	curation, err := parseNVIDIACuration(content)
+	curation, err := parseOpenAICuration(content)
 	if err != nil || curation.Mode != "chat" || curation.Answer == "" || len(curation.RecommendedIDs) != 1 {
 		t.Fatalf("expected valid trailing object, got %#v, %v", curation, err)
 	}
@@ -435,16 +435,16 @@ func TestSourceLinksOnlyUseRegisteredHTTPURLs(t *testing.T) {
 
 func TestNamedSettingEncryptionUsesSeparateContext(t *testing.T) {
 	server := Server{config: Config{SessionSecret: "test-session-secret-that-is-long-enough"}}
-	encrypted, err := server.sealNamedSetting(nvidiaAISettingName, []byte("secret"))
+	encrypted, err := server.sealNamedSetting(openaiAISettingName, []byte("secret"))
 	if err != nil {
 		t.Fatalf("seal named setting: %v", err)
 	}
-	plaintext, err := server.openNamedSetting(nvidiaAISettingName, encrypted)
+	plaintext, err := server.openNamedSetting(openaiAISettingName, encrypted)
 	if err != nil || string(plaintext) != "secret" {
 		t.Fatalf("open named setting: %q, %v", plaintext, err)
 	}
 	if _, err := server.openNamedSetting(publicDataSettingName, encrypted); err == nil {
-		t.Fatal("setting encrypted for NVIDIA must not decrypt in public-data context")
+		t.Fatal("setting encrypted for OpenAI must not decrypt in public-data context")
 	}
 	kcisaEncrypted, err := server.sealNamedSetting(kcisaPublicDataSettingName, []byte("kcisa-secret"))
 	if err != nil {
@@ -455,40 +455,53 @@ func TestNamedSettingEncryptionUsesSeparateContext(t *testing.T) {
 	}
 }
 
-func TestNVIDIAChatClient(t *testing.T) {
+func TestOpenAIChatClient(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" {
-			t.Fatalf("unexpected NVIDIA API path: %q", r.URL.Path)
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("unexpected OpenAI API path: %q", r.URL.Path)
 		}
-		if r.Header.Get("Authorization") != "Bearer nvapi-test-key-123456" {
-			t.Fatal("NVIDIA authorization header is missing")
+		if r.Header.Get("Authorization") != "Bearer sk-test-key-123456" {
+			t.Fatal("OpenAI authorization header is missing")
 		}
-		var request nvidiaChatRequest
+		var request openaiResponseRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Fatalf("decode NVIDIA request: %v", err)
+			t.Fatalf("decode OpenAI request: %v", err)
 		}
-		if request.Model != defaultNVIDIAModel || request.MaxTokens != 32 || request.ReasoningBudget != 0 || request.ChatTemplateKwargs == nil || request.ChatTemplateKwargs.EnableThinking {
-			t.Fatalf("unexpected NVIDIA request: %#v", request)
+		if request.Model != defaultOpenAIModel || request.MaxOutputTokens != 32 || request.Store || request.Text != nil || request.Reasoning == nil || request.Reasoning.Effort != "none" {
+			t.Fatalf("unexpected OpenAI request: %#v", request)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`))
+		_, _ = w.Write([]byte(`{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"OK"}]}]}`))
 	}))
 	defer server.Close()
 
-	content, err := callNVIDIAChatAtEndpoint(t.Context(), server.URL+"/v1", nvidiaAISettings{
-		APIKey: "nvapi-test-key-123456",
-	}, []nvidiaChatMessage{{Role: "user", Content: "test"}}, 32)
+	content, err := callOpenAIChatAtEndpoint(t.Context(), server.URL+"/v1", openaiAISettings{
+		APIKey: "sk-test-key-123456",
+	}, []openaiChatMessage{{Role: "user", Content: "test"}}, 32, false)
 	if err != nil || content != "OK" {
-		t.Fatalf("unexpected NVIDIA response: %q, %v", content, err)
+		t.Fatalf("unexpected OpenAI response: %q, %v", content, err)
 	}
 }
 
-func TestNVIDIAReasoningBudgetLeavesRoomForStructuredAnswer(t *testing.T) {
-	if got := nvidiaReasoningBudget(defaultNVIDIAModel, 900); got != 225 {
-		t.Fatalf("expected bounded reasoning budget, got %d", got)
+func TestOpenAIStructuredCurationRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request openaiResponseRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode OpenAI request: %v", err)
+		}
+		if request.Text == nil || request.Text.Format.Type != "json_schema" || !request.Text.Format.Strict || request.Store || request.Reasoning == nil || request.Reasoning.Effort != "low" {
+			t.Fatalf("expected private structured response request, got %#v", request)
+		}
+		_, _ = w.Write([]byte(`{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"{\"mode\":\"chat\",\"answer\":\"무료입니다.\",\"question\":\"\",\"options\":[],\"recommended_ids\":[]}"}]}]}`))
+	}))
+	defer server.Close()
+	content, err := callOpenAIChatAtEndpoint(t.Context(), server.URL+"/v1", openaiAISettings{APIKey: "sk-test-key-123456"}, []openaiChatMessage{{Role: "user", Content: "test"}}, 900, true)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := nvidiaReasoningBudget("qwen/qwen3.5-122b-a10b", 900); got != 0 {
-		t.Fatalf("reasoning budget should be omitted for other model families, got %d", got)
+	curation, err := parseOpenAICuration(content)
+	if err != nil || curation.Mode != "chat" {
+		t.Fatalf("unexpected curation: %#v, %v", curation, err)
 	}
 }
 

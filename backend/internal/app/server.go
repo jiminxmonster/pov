@@ -194,9 +194,9 @@ func (s *Server) routes() http.Handler {
 				private.Get("/settings/kcisa-data", s.getKCISADataSettings)
 				private.Put("/settings/kcisa-data", s.updateKCISADataSettings)
 				private.Post("/settings/kcisa-data/sync", s.syncKCISADataNow)
-				private.Get("/settings/ai", s.getNVIDIAAISettings)
-				private.Put("/settings/ai", s.updateNVIDIAAISettings)
-				private.Post("/settings/ai/test", s.testNVIDIAAISettings)
+				private.Get("/settings/ai", s.getOpenAIAISettings)
+				private.Put("/settings/ai", s.updateOpenAIAISettings)
+				private.Post("/settings/ai/test", s.testOpenAIAISettings)
 				private.Get("/posts", s.listAdminPosts)
 				private.Post("/posts", s.createPost)
 				private.Post("/posts/{id}/publish", s.publishPost)
@@ -272,7 +272,7 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		settings, configured, settingsErr := s.loadNVIDIAAISettings(r.Context())
+		settings, configured, settingsErr := s.loadOpenAIAISettings(r.Context())
 		if settingsErr == nil && configured && s.allowAIRequest(r) {
 			conversationQuery := aiConversationQuery(input.Query, input.History)
 			knowledgeQuery := isHistoricalKnowledgeQuery(conversationQuery)
@@ -301,7 +301,7 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 				candidates = candidates[:80]
 			}
 			if candidateErr == nil && len(candidates) > 0 {
-				curation, curationErr := curateWithNVIDIA(r.Context(), settings, input.Query, input.History, candidates)
+				curation, curationErr := curateWithOpenAI(r.Context(), settings, input.Query, input.History, candidates)
 				if curationErr == nil {
 					posts := postsByRecommendedIDs(candidates, curation.RecommendedIDs)
 					if curation.Mode == "map" {
@@ -316,7 +316,7 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 					})
 					return
 				}
-				log.Printf("NVIDIA AI curation fallback: %v", curationErr)
+				log.Printf("OpenAI AI curation fallback: %v", curationErr)
 			}
 		}
 	}

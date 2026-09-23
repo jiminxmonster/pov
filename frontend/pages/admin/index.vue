@@ -26,7 +26,7 @@ const kcisaSettingsSaving = ref(false)
 const kcisaSettingsSyncing = ref(false)
 const kcisaSettingsNotice = ref('')
 const aiAPIKey = ref('')
-const aiModel = ref('nvidia/nemotron-3-nano-30b-a3b')
+const aiModel = ref('gpt-5.6-luna')
 const aiMaskedKey = ref('')
 const aiConfigured = ref(false)
 const aiSaving = ref(false)
@@ -204,7 +204,7 @@ async function loadAISettings() {
     })
     applyAISettings(result)
   } catch (error) {
-    aiNotice.value = apiErrorMessage(error, 'NVIDIA AI 설정을 불러오지 못했습니다.')
+    aiNotice.value = apiErrorMessage(error, 'OpenAI 설정을 불러오지 못했습니다.')
   }
 }
 
@@ -219,9 +219,9 @@ async function saveAISettings() {
     })
     applyAISettings(result)
     aiAPIKey.value = ''
-    aiNotice.value = result.message || 'NVIDIA AI 설정을 저장했습니다.'
+    aiNotice.value = result.message || 'OpenAI 설정을 저장했습니다.'
   } catch (error) {
-    aiNotice.value = apiErrorMessage(error, 'NVIDIA AI 설정을 저장하지 못했습니다.')
+    aiNotice.value = apiErrorMessage(error, 'OpenAI 설정을 저장하지 못했습니다.')
   } finally {
     aiSaving.value = false
   }
@@ -236,9 +236,9 @@ async function testAISettings() {
       credentials: 'include',
     })
     applyAISettings(result)
-    aiNotice.value = result.message || 'NVIDIA AI 연결이 정상입니다.'
+    aiNotice.value = result.message || 'OpenAI 연결이 정상입니다.'
   } catch (error) {
-    aiNotice.value = apiErrorMessage(error, 'NVIDIA AI에 연결하지 못했습니다.')
+    aiNotice.value = apiErrorMessage(error, 'OpenAI에 연결하지 못했습니다.')
   } finally {
     aiTesting.value = false
   }
@@ -415,7 +415,7 @@ onMounted(() => {
     <section class="admin-settings ai-settings" aria-labelledby="ai-settings-title">
       <div class="admin-settings-copy">
         <p class="eyebrow">AI CURATION</p>
-        <h1 id="ai-settings-title">NVIDIA 전시 큐레이터</h1>
+        <h1 id="ai-settings-title">OpenAI 전시 큐레이터</h1>
         <p>자연어 질문을 해석하고 현재 등록된 전시 안에서 추천 순서와 이유를 만듭니다.</p>
         <span v-if="aiConfigured" class="settings-key-status ai-connected">
           <KeyRound :size="15" /> 연결됨 · {{ aiMaskedKey }} · {{ aiModel }}
@@ -424,21 +424,21 @@ onMounted(() => {
 
       <form class="admin-settings-form ai-settings-form" @submit.prevent="saveAISettings">
         <label>
-          <span>NVIDIA API 키</span>
+          <span>OpenAI API 키</span>
           <input
             v-model="aiAPIKey"
             type="password"
             autocomplete="off"
-            :placeholder="aiMaskedKey ? `새 API 키 입력 · 현재 ${aiMaskedKey}` : 'nvapi-로 시작하는 API 키 입력'"
+            :placeholder="aiMaskedKey ? `새 API 키 입력 · 현재 ${aiMaskedKey}` : 'sk-로 시작하는 API 키 입력'"
           >
         </label>
         <label>
-          <span>NVIDIA 모델</span>
-          <input v-model="aiModel" list="nvidia-models" autocomplete="off" spellcheck="false">
-          <datalist id="nvidia-models">
-            <option value="nvidia/nemotron-3-nano-30b-a3b">빠른 기본 모델</option>
-            <option value="nvidia/nemotron-3-super-120b-a12b">균형형 모델</option>
-            <option value="nvidia/nemotron-3-ultra-550b-a55b">고품질 모델</option>
+          <span>OpenAI 모델</span>
+          <input v-model="aiModel" list="openai-models" autocomplete="off" spellcheck="false">
+          <datalist id="openai-models">
+            <option value="gpt-5.6-luna">현재 사용 모델 · 기본값</option>
+            <option value="gpt-5.6-terra">다른 모델</option>
+            <option value="gpt-5.4-mini">이전 기본 모델</option>
           </datalist>
         </label>
         <div class="settings-actions">
@@ -452,7 +452,7 @@ onMounted(() => {
           </button>
         </div>
         <p class="settings-notice" aria-live="polite">{{ aiNotice || 'API 키는 서버에서 암호화 저장되며 공개 화면이나 브라우저 코드에 포함되지 않습니다.' }}</p>
-        <p class="settings-notice trial-notice">NVIDIA 무료 엔드포인트는 개발·테스트용입니다. 정식 공개 운영 전 프로덕션 이용 조건을 확인해 주세요.</p>
+        <p class="settings-notice trial-notice">OpenAI API 사용량은 선택한 프로젝트에 과금됩니다. 프로젝트의 사용 한도를 확인해 주세요.</p>
       </form>
     </section>
 
