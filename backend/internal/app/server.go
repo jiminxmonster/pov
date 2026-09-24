@@ -33,6 +33,7 @@ import (
 )
 
 const sessionCookieName = "pov_admin"
+const publicExhibitionDisplayLimit = 3000
 
 var inlineImageIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,120}$`)
 
@@ -51,6 +52,9 @@ type Config struct {
 	KCISAOpenDataURL   string
 	KCISAOpenDataKey   string
 	KCISAOpenDataLimit int
+	TourOpenDataURL    string
+	TourOpenDataKey    string
+	TourOpenDataLimit  int
 }
 
 type Server struct {
@@ -115,6 +119,9 @@ func ConfigFromEnv() Config {
 		KCISAOpenDataURL:   envOr("KCISA_OPEN_DATA_URL", "https://api.kcisa.kr/openapi/API_CCA_145/request"),
 		KCISAOpenDataKey:   envOr("KCISA_OPEN_DATA_KEY", ""),
 		KCISAOpenDataLimit: envIntOr("KCISA_OPEN_DATA_LIMIT", 1000),
+		TourOpenDataURL:    envOr("TOUR_OPEN_DATA_URL", "https://apis.data.go.kr/B551011/KorService2/searchFestival2"),
+		TourOpenDataKey:    envOr("TOUR_OPEN_DATA_KEY", ""),
+		TourOpenDataLimit:  envIntOr("TOUR_OPEN_DATA_LIMIT", 1000),
 	}
 }
 
@@ -194,6 +201,9 @@ func (s *Server) routes() http.Handler {
 				private.Get("/settings/kcisa-data", s.getKCISADataSettings)
 				private.Put("/settings/kcisa-data", s.updateKCISADataSettings)
 				private.Post("/settings/kcisa-data/sync", s.syncKCISADataNow)
+				private.Get("/settings/tour-data", s.getTourDataSettings)
+				private.Put("/settings/tour-data", s.updateTourDataSettings)
+				private.Post("/settings/tour-data/sync", s.syncTourDataNow)
 				private.Get("/settings/ai", s.getOpenAIAISettings)
 				private.Put("/settings/ai", s.updateOpenAIAISettings)
 				private.Post("/settings/ai/test", s.testOpenAIAISettings)
@@ -219,22 +229,22 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listPublishedPosts(w http.ResponseWriter, r *http.Request) {
-	posts, err := s.queryPosts(r.Context(), r.URL.Query().Get("q"), "published", r.URL.Query().Get("bbox"), 2000)
+	posts, err := s.queryPosts(r.Context(), r.URL.Query().Get("q"), "published", r.URL.Query().Get("bbox"), 5000)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "게시글을 불러오지 못했습니다")
 		return
 	}
-	posts = publicIndexExhibitions(posts, time.Now(), 1000)
+	posts = publicIndexExhibitions(posts, time.Now(), publicExhibitionDisplayLimit)
 	writeJSON(w, http.StatusOK, searchResponse{Items: posts, Total: len(posts)})
 }
 
 func (s *Server) listMapPosts(w http.ResponseWriter, r *http.Request) {
-	posts, err := s.queryPosts(r.Context(), r.URL.Query().Get("q"), "published", r.URL.Query().Get("bbox"), 2000)
+	posts, err := s.queryPosts(r.Context(), r.URL.Query().Get("q"), "published", r.URL.Query().Get("bbox"), 5000)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "지도 게시글을 불러오지 못했습니다")
 		return
 	}
-	posts = currentMapExhibitions(posts, time.Now(), 1000)
+	posts = currentMapExhibitions(posts, time.Now(), publicExhibitionDisplayLimit)
 	writeJSON(w, http.StatusOK, searchResponse{Items: posts, Total: len(posts)})
 }
 

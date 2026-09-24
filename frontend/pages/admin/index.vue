@@ -25,6 +25,13 @@ const kcisaDataStorage = ref('environment')
 const kcisaSettingsSaving = ref(false)
 const kcisaSettingsSyncing = ref(false)
 const kcisaSettingsNotice = ref('')
+const tourDataKey = ref('')
+const tourDataLimit = ref(1000)
+const tourDataMaskedKey = ref('')
+const tourDataStorage = ref('environment')
+const tourSettingsSaving = ref(false)
+const tourSettingsSyncing = ref(false)
+const tourSettingsNotice = ref('')
 const aiAPIKey = ref('')
 const aiModel = ref('gpt-5.6-luna')
 const aiMaskedKey = ref('')
@@ -191,6 +198,57 @@ async function syncKCISAData() {
   }
 }
 
+function applyTourDataSettings(result: PublicDataSettingsResponse) {
+  tourDataMaskedKey.value = result.masked_key
+  tourDataLimit.value = result.limit
+  tourDataStorage.value = result.storage
+}
+
+async function loadTourDataSettings() {
+  try {
+    const result = await $fetch<PublicDataSettingsResponse>(`${config.public.apiBase}/admin/settings/tour-data`, { credentials: 'include' })
+    applyTourDataSettings(result)
+  } catch (error) {
+    tourSettingsNotice.value = apiErrorMessage(error, '관광공사 API 설정을 불러오지 못했습니다.')
+  }
+}
+
+async function saveTourDataSettings() {
+  tourSettingsSaving.value = true
+  tourSettingsNotice.value = ''
+  try {
+    const result = await $fetch<PublicDataSettingsResponse>(`${config.public.apiBase}/admin/settings/tour-data`, {
+      method: 'PUT', credentials: 'include', body: { api_key: tourDataKey.value, limit: tourDataLimit.value },
+    })
+    applyTourDataSettings(result)
+    tourDataKey.value = ''
+    tourSettingsNotice.value = typeof result.synced_count === 'number'
+      ? `${result.message} ${result.synced_count}건을 반영했습니다.` : result.message || '인증키를 저장했습니다.'
+    await loadAdminPosts()
+  } catch (error) {
+    tourSettingsNotice.value = apiErrorMessage(error, '관광공사 API 설정을 저장하지 못했습니다.')
+  } finally {
+    tourSettingsSaving.value = false
+  }
+}
+
+async function syncTourData() {
+  tourSettingsSyncing.value = true
+  tourSettingsNotice.value = ''
+  try {
+    const result = await $fetch<PublicDataSettingsResponse>(`${config.public.apiBase}/admin/settings/tour-data/sync`, {
+      method: 'POST', credentials: 'include',
+    })
+    applyTourDataSettings(result)
+    tourSettingsNotice.value = `${result.message} ${result.synced_count || 0}건을 반영했습니다.`
+    await loadAdminPosts()
+  } catch (error) {
+    tourSettingsNotice.value = apiErrorMessage(error, '관광공사 전시 데이터를 동기화하지 못했습니다.')
+  } finally {
+    tourSettingsSyncing.value = false
+  }
+}
+
 function applyAISettings(result: AISettingsResponse) {
   aiConfigured.value = result.configured
   aiMaskedKey.value = result.masked_key
@@ -324,6 +382,7 @@ onMounted(() => {
   loadAdminPosts()
   loadPublicDataSettings()
   loadKCISADataSettings()
+  loadTourDataSettings()
   loadAISettings()
 })
 </script>
@@ -409,6 +468,38 @@ onMounted(() => {
           </button>
         </div>
         <p class="settings-notice" aria-live="polite">{{ kcisaSettingsNotice || '서비스키는 암호화 저장됩니다. 이 API는 좌표를 제공하지 않아 확인되지 않은 위치는 지도에 임의로 표시하지 않습니다.' }}</p>
+      </form>
+    </section>
+
+    <section class="admin-settings tour-settings" aria-labelledby="tour-data-title">
+      <div class="admin-settings-copy">
+        <p class="eyebrow">NATIONWIDE EXHIBITIONS</p>
+        <h1 id="tour-data-title">한국관광공사 전시정보</h1>
+        <p>공공데이터포털의 국문 관광정보 서비스에서 전국 전시회 자료를 가져옵니다. 좌표가 있는 전시는 지도에도 표시됩니다.</p>
+        <span v-if="tourDataMaskedKey" class="settings-key-status">
+          <KeyRound :size="15" /> {{ tourDataMaskedKey }} · 최대 {{ tourDataLimit }}건 · {{ tourDataStorage === 'database' ? '운영자 저장' : '서버 기본값' }}
+        </span>
+      </div>
+      <form class="admin-settings-form" @submit.prevent="saveTourDataSettings">
+        <label class="settings-key-field">
+          <span>공공데이터포털 서비스키</span>
+          <input v-model="tourDataKey" type="password" autocomplete="off" :placeholder="tourDataMaskedKey ? `새 서비스키 입력 · 현재 ${tourDataMaskedKey}` : '국문 관광정보 서비스 활용신청 후 받은 키'">
+        </label>
+        <label class="settings-limit-field">
+          <span>가져올 전시 수</span>
+          <input v-model.number="tourDataLimit" type="number" min="1" max="1000" inputmode="numeric">
+        </label>
+        <div class="settings-actions">
+          <button class="pill-button secondary" type="button" :disabled="!tourDataMaskedKey || tourSettingsSaving || tourSettingsSyncing" @click="syncTourData">
+            <LoaderCircle v-if="tourSettingsSyncing" :size="17" class="spin" />
+            <RefreshCw v-else :size="17" /> 지금 동기화
+          </button>
+          <button class="pill-button" type="submit" :disabled="tourSettingsSaving || tourSettingsSyncing">
+            <LoaderCircle v-if="tourSettingsSaving" :size="17" class="spin" />
+            <Save v-else :size="17" /> 저장하고 동기화
+          </button>
+        </div>
+        <p class="settings-notice" aria-live="polite">{{ tourSettingsNotice || '한국관광공사 국문 관광정보 서비스 활용신청이 필요합니다. 서비스키는 암호화 저장됩니다.' }}</p>
       </form>
     </section>
 
@@ -537,6 +628,7 @@ onMounted(() => {
             <div class="admin-row-chips">
               <span v-if="post.source_type === 'community'" class="status-chip">사용자 제보</span>
               <span v-else-if="post.source_type === 'kcisa-open-data'" class="status-chip">문화공공데이터</span>
+              <span v-else-if="post.source_type === 'tour-open-data'" class="status-chip">한국관광공사</span>
               <span v-else-if="post.source_type === 'seoul-open-data'" class="status-chip">서울 공공데이터</span>
               <span class="status-chip">{{ post.status }}</span>
             </div>

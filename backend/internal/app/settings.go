@@ -20,6 +20,7 @@ import (
 
 const publicDataSettingName = "seoul_open_data"
 const kcisaPublicDataSettingName = "kcisa_open_data"
+const tourPublicDataSettingName = "tour_open_data"
 
 var publicDataKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 var serviceKeyPattern = regexp.MustCompile(`^[^\s\x00-\x1f\x7f]+$`)
@@ -173,6 +174,68 @@ func (s *Server) syncKCISADataNow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, payload)
 }
 
+func (s *Server) getTourDataSettings(w http.ResponseWriter, r *http.Request) {
+	settings, stored, err := s.loadTourDataSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "관광공사 API 설정을 불러오지 못했습니다")
+		return
+	}
+	writeJSON(w, http.StatusOK, publicDataSettingsPayload(settings, stored))
+}
+
+func (s *Server) updateTourDataSettings(w http.ResponseWriter, r *http.Request) {
+	var input publicDataSettings
+	if err := decodeJSON(w, r, &input); err != nil {
+		return
+	}
+	input.APIKey = normalizeKCISAServiceKey(input.APIKey)
+	if input.APIKey == "" {
+		current, _, err := s.loadTourDataSettings(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "기존 관광공사 인증키를 불러오지 못했습니다")
+			return
+		}
+		input.APIKey = current.APIKey
+	}
+	if !validKCISADataKey(input.APIKey) {
+		writeError(w, http.StatusBadRequest, "공공데이터포털 인증키 형식을 확인해 주세요")
+		return
+	}
+	settings := normalizeTourDataSettings(input)
+	if err := s.storeTourDataSettings(r.Context(), settings); err != nil {
+		writeError(w, http.StatusInternalServerError, "관광공사 인증키를 저장하지 못했습니다")
+		return
+	}
+	payload := publicDataSettingsPayload(settings, true)
+	count, err := s.syncTourExhibitionsWithSettings(r.Context(), settings)
+	if err != nil {
+		log.Printf("관광공사 전시 수동 동기화 실패: %v", err)
+		payload.Message = "인증키는 저장했습니다. 관광공사 API 활용신청 및 연결 상태를 확인해 주세요."
+	} else {
+		payload.SyncedCount = count
+		payload.Message = "관광공사 전시 정보를 동기화했습니다."
+	}
+	writeJSON(w, http.StatusOK, payload)
+}
+
+func (s *Server) syncTourDataNow(w http.ResponseWriter, r *http.Request) {
+	settings, stored, err := s.loadTourDataSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "관광공사 API 설정을 불러오지 못했습니다")
+		return
+	}
+	count, err := s.syncTourExhibitionsWithSettings(r.Context(), settings)
+	if err != nil {
+		log.Printf("관광공사 전시 수동 동기화 실패: %v", err)
+		writeError(w, http.StatusBadGateway, "관광공사 API 활용신청 및 연결 상태를 확인해 주세요")
+		return
+	}
+	payload := publicDataSettingsPayload(settings, stored)
+	payload.SyncedCount = count
+	payload.Message = "관광공사 전시 정보를 동기화했습니다."
+	writeJSON(w, http.StatusOK, payload)
+}
+
 func kcisaDataSyncErrorMessage(err error) string {
 	if err == nil {
 		return ""
@@ -285,6 +348,44 @@ func (s *Server) storeKCISADataSettings(ctx context.Context, settings publicData
 	return err
 }
 
+func (s *Server) loadTourDataSettings(ctx context.Context) (publicDataSettings, bool, error) {
+	fallback := normalizeTourDataSettings(publicDataSettings{APIKey: s.config.TourOpenDataKey, Limit: s.config.TourOpenDataLimit})
+	var encrypted []byte
+	err := s.db.QueryRow(ctx, `SELECT value_encrypted FROM app_settings WHERE name = $1`, tourPublicDataSettingName).Scan(&encrypted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fallback, false, nil
+	}
+	if err != nil {
+		return publicDataSettings{}, false, err
+	}
+	plaintext, err := s.openNamedSetting(tourPublicDataSettingName, encrypted)
+	if err != nil {
+		return publicDataSettings{}, true, err
+	}
+	var settings publicDataSettings
+	if err := json.Unmarshal(plaintext, &settings); err != nil {
+		return publicDataSettings{}, true, err
+	}
+	return normalizeTourDataSettings(settings), true, nil
+}
+
+func (s *Server) storeTourDataSettings(ctx context.Context, settings publicDataSettings) error {
+	payload, err := json.Marshal(normalizeTourDataSettings(settings))
+	if err != nil {
+		return err
+	}
+	encrypted, err := s.sealNamedSetting(tourPublicDataSettingName, payload)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO app_settings (name, value_encrypted)
+		VALUES ($1, $2)
+		ON CONFLICT (name) DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, updated_at = NOW()
+	`, tourPublicDataSettingName, encrypted)
+	return err
+}
+
 func (s *Server) sealSetting(plaintext []byte) ([]byte, error) {
 	return s.sealNamedSetting(publicDataSettingName, plaintext)
 }
@@ -356,10 +457,21 @@ func normalizeKCISADataSettings(settings publicDataSettings) publicDataSettings 
 	return settings
 }
 
+func normalizeTourDataSettings(settings publicDataSettings) publicDataSettings {
+	settings.APIKey = normalizeKCISAServiceKey(settings.APIKey)
+	if settings.Limit < 1 {
+		settings.Limit = 1000
+	}
+	if settings.Limit > 1000 {
+		settings.Limit = 1000
+	}
+	return settings
+}
+
 func normalizeKCISAServiceKey(value string) string {
 	value = strings.TrimSpace(value)
 	if strings.Contains(value, "%") {
-		if decoded, err := url.QueryUnescape(value); err == nil {
+		if decoded, err := url.PathUnescape(value); err == nil {
 			value = decoded
 		}
 	}

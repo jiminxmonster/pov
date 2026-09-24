@@ -160,19 +160,29 @@ func (s *Server) StartPublicDataSync(ctx context.Context) {
 			settings, _, settingsErr := s.loadKCISADataSettings(ctx)
 			if settingsErr != nil {
 				log.Printf("문화공공데이터 설정 확인 실패: %v", settingsErr)
-				return
+			} else if validKCISADataKey(settings.APIKey) {
+				kcisaContext, cancelKCISA := context.WithTimeout(ctx, 30*time.Second)
+				count, err = s.syncKCISAExhibitionsWithSettings(kcisaContext, settings)
+				cancelKCISA()
+				if err != nil {
+					log.Printf("문화공공데이터 통합 전시 동기화 실패: %v", err)
+				} else {
+					log.Printf("문화공공데이터 통합 전시 %d건 동기화", count)
+				}
 			}
-			if !validKCISADataKey(settings.APIKey) {
-				return
+			tourSettings, _, tourErr := s.loadTourDataSettings(ctx)
+			if tourErr != nil {
+				log.Printf("관광공사 API 설정 확인 실패: %v", tourErr)
+			} else if validKCISADataKey(tourSettings.APIKey) {
+				tourContext, cancelTour := context.WithTimeout(ctx, 60*time.Second)
+				count, err = s.syncTourExhibitionsWithSettings(tourContext, tourSettings)
+				cancelTour()
+				if err != nil {
+					log.Printf("관광공사 전시 동기화 실패: %v", err)
+				} else {
+					log.Printf("관광공사 전시 %d건 동기화", count)
+				}
 			}
-			kcisaContext, cancelKCISA := context.WithTimeout(ctx, 30*time.Second)
-			count, err = s.syncKCISAExhibitionsWithSettings(kcisaContext, settings)
-			cancelKCISA()
-			if err != nil {
-				log.Printf("문화공공데이터 통합 전시 동기화 실패: %v", err)
-				return
-			}
-			log.Printf("문화공공데이터 통합 전시 %d건 동기화", count)
 		}
 
 		syncNow()

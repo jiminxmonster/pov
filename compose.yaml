@@ -35,6 +35,9 @@ services:
       KCISA_OPEN_DATA_URL: ${KCISA_OPEN_DATA_URL:-https://api.kcisa.kr/openapi/API_CCA_145/request}
       KCISA_OPEN_DATA_KEY: ${KCISA_OPEN_DATA_KEY:-}
       KCISA_OPEN_DATA_LIMIT: ${KCISA_OPEN_DATA_LIMIT:-1000}
+      TOUR_OPEN_DATA_URL: ${TOUR_OPEN_DATA_URL:-https://apis.data.go.kr/B551011/KorService2/searchFestival2}
+      TOUR_OPEN_DATA_KEY: ${TOUR_OPEN_DATA_KEY:-}
+      TOUR_OPEN_DATA_LIMIT: ${TOUR_OPEN_DATA_LIMIT:-1000}
     volumes:
       - uploads:/data/uploads
     depends_on:
