@@ -300,10 +300,10 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 				candidates, candidateErr = s.queryPosts(r.Context(), "", "published", candidateBBox, 1000)
 			}
 			if recommendationQuery {
-				candidates = currentExhibitions(candidates, time.Now(), 80)
+				candidates = currentMapExhibitions(candidates, time.Now(), 80)
 				if candidateErr == nil && len(candidates) == 0 && candidateQuery != "" {
 					candidates, candidateErr = s.queryPosts(r.Context(), "", "published", candidateBBox, 1000)
-					candidates = currentExhibitions(candidates, time.Now(), 80)
+					candidates = currentMapExhibitions(candidates, time.Now(), 80)
 				}
 			} else if knowledgeQuery {
 				candidates = historicalKnowledgeExhibitions(candidates, time.Now(), 80)
@@ -313,20 +313,26 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 			if candidateErr == nil && len(candidates) > 0 {
 				curation, curationErr := curateWithOpenAI(r.Context(), settings, input.Query, input.History, candidates)
 				if curationErr == nil {
-					posts := postsByRecommendedIDs(candidates, curation.RecommendedIDs)
 					if curation.Mode == "map" {
-						posts = currentExhibitions(posts, time.Now(), 12)
+						result := mapCurationResponse(curation, candidates, time.Now())
+						if result.Total > 0 {
+							writeJSON(w, http.StatusOK, result)
+							return
+						}
+						log.Print("OpenAI AI curation fallback: no mappable exhibition IDs")
 					} else {
-						posts = publicIndexExhibitions(posts, time.Now(), 6)
+						posts := publicIndexExhibitions(postsByRecommendedIDs(candidates, curation.RecommendedIDs), time.Now(), 6)
+						writeJSON(w, http.StatusOK, searchResponse{
+							Items: posts, Total: len(posts), Interpretation: curation.Answer, AIPowered: true,
+							Mode: curation.Mode, Question: curation.Question, Options: curation.Options,
+							Links: sourceLinksForPosts(posts),
+						})
+						return
 					}
-					writeJSON(w, http.StatusOK, searchResponse{
-						Items: posts, Total: len(posts), Interpretation: curation.Answer, AIPowered: true,
-						Mode: curation.Mode, Question: curation.Question, Options: curation.Options,
-						Links: sourceLinksForPosts(posts),
-					})
-					return
 				}
-				log.Printf("OpenAI AI curation fallback: %v", curationErr)
+				if curationErr != nil {
+					log.Printf("OpenAI AI curation fallback: %v", curationErr)
+				}
 			}
 		}
 	}
@@ -348,7 +354,8 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	fallback := fallbackAIDecision(input.Query, input.History, posts)
 	if fallback.Mode == "map" {
-		posts = currentExhibitions(posts, time.Now(), 100)
+		posts = currentMapExhibitions(posts, time.Now(), 100)
+		fallback.Answer = mapRecommendationSummary(posts)
 	} else {
 		posts = publicIndexExhibitions(posts, time.Now(), 100)
 	}
@@ -361,6 +368,29 @@ func (s *Server) aiSearch(w http.ResponseWriter, r *http.Request) {
 		Options:        fallback.Options,
 		Links:          sourceLinksForPosts(posts),
 	})
+}
+
+func mapCurationResponse(curation openaiCuration, candidates []Post, now time.Time) searchResponse {
+	posts := currentMapExhibitions(postsByRecommendedIDs(candidates, curation.RecommendedIDs), now, 12)
+	return searchResponse{
+		Items: posts, Total: len(posts), Interpretation: mapRecommendationSummary(posts),
+		AIPowered: true, Mode: "map", Links: sourceLinksForPosts(posts),
+	}
+}
+
+func mapRecommendationSummary(posts []Post) string {
+	if len(posts) == 0 {
+		return "지금 지도에 표시할 수 있는 전시를 찾지 못했습니다. 다른 검색어로 다시 찾아보세요."
+	}
+	titles := make([]string, 0, min(len(posts), 3))
+	for _, post := range posts[:min(len(posts), 3)] {
+		titles = append(titles, "《"+limitRunes(post.Title, 70)+"》")
+	}
+	remaining := ""
+	if len(posts) > len(titles) {
+		remaining = fmt.Sprintf(" 외 %d개", len(posts)-len(titles))
+	}
+	return strings.Join(titles, ", ") + remaining + " 전시를 추천합니다. 아래 목록과 지도에서 일정과 관람 정보를 확인해 보세요."
 }
 
 func (s *Server) allowAIRequest(r *http.Request) bool {

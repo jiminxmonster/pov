@@ -381,6 +381,27 @@ func TestOpenAISettingsAndCurationHelpers(t *testing.T) {
 	}
 }
 
+func TestMapCurationResponseMatchesVisiblePosts(t *testing.T) {
+	now := time.Date(2026, time.September, 26, 12, 0, 0, 0, time.FixedZone("KST", 9*60*60))
+	posts := []Post{
+		{ID: "visible", Title: "지도에 있는 전시", Latitude: 37.57, Longitude: 126.98, Metadata: map[string]string{}},
+		{ID: "unmapped", Title: "좌표 없는 전시", Metadata: map[string]string{}},
+		{ID: "hidden", Title: "지도 숨김 전시", Latitude: 37.57, Longitude: 126.98, Metadata: map[string]string{"지도표시": "아니오"}},
+		{ID: "expired", Title: "종료된 전시", Latitude: 37.57, Longitude: 126.98, Metadata: map[string]string{"전시종료일": "2026-08-01"}},
+	}
+	curation := openaiCuration{
+		Mode: "map", Answer: "《목록에 없는 가상 전시》를 추천합니다.",
+		RecommendedIDs: []string{"unmapped", "hidden", "expired", "visible"},
+	}
+	result := mapCurationResponse(curation, posts, now)
+	if result.Mode != "map" || !result.AIPowered || result.Total != 1 || len(result.Items) != 1 || result.Items[0].ID != "visible" {
+		t.Fatalf("map response must contain only visible recommendations: %#v", result)
+	}
+	if !strings.Contains(result.Interpretation, "지도에 있는 전시") || strings.Contains(result.Interpretation, "가상 전시") || strings.Contains(result.Interpretation, "좌표 없는 전시") || strings.Contains(result.Interpretation, "지도 숨김 전시") || strings.Contains(result.Interpretation, "종료된 전시") {
+		t.Fatalf("map explanation must match displayed posts: %q", result.Interpretation)
+	}
+}
+
 func TestParseOpenAICurationFindsValidObjectAfterModelPreamble(t *testing.T) {
 	content := "검토 형식: {not-json}\n최종 답변:\n```json\n{\"mode\":\"chat\",\"answer\":\"관람료는 무료입니다.\",\"recommended_ids\":[\"post-1\"]}\n```"
 	curation, err := parseOpenAICuration(content)
