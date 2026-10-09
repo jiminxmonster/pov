@@ -30,6 +30,7 @@ const mapPosts = computed(() => posts.value.filter(post => (
   && (post.latitude !== 0 || post.longitude !== 0)
 )))
 const pendingLocationCount = computed(() => posts.value.length - mapPosts.value.length)
+const mappedPostIds = computed(() => new Set(mapPosts.value.map(post => post.id)))
 
 useSeoMeta({
   title: '전지적관람시점',
@@ -198,9 +199,9 @@ onMounted(initializePage)
       </p>
 
       <div class="discovery-layout">
-        <aside class="post-list" aria-label="지도에 표시된 공연·전시">
+        <aside class="post-list" aria-label="지도와 함께 보는 전체 공연·전시">
           <button
-            v-for="(post, index) in mapPosts"
+            v-for="(post, index) in posts"
             :key="post.id"
             type="button"
             class="post-list-item"
@@ -211,11 +212,12 @@ onMounted(initializePage)
             <span class="post-list-copy">
               <strong>{{ post.title }}</strong>
               <small><MapPin :size="13" /> {{ post.address || '장소 확인 중' }}</small>
+              <small v-if="!mappedPostIds.has(post.id)">위치 확인 중</small>
             </span>
             <img v-if="isExhibitionExpired(post)" :src="expiredStampUrl" alt="종료된 전시" class="expired-row-stamp is-compact">
           </button>
           <p v-if="loading" class="empty-copy"><LoaderCircle :size="18" class="spin" /> 전시를 불러오고 있습니다.</p>
-          <p v-else-if="mapPosts.length === 0" class="empty-copy">위치가 확인된 전시가 아직 없습니다.</p>
+          <p v-else-if="posts.length === 0" class="empty-copy">전시가 아직 없습니다.</p>
         </aside>
 
         <div class="map-frame">
