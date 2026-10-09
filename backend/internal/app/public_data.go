@@ -544,7 +544,7 @@ func convertKCISAEvent(event kcisaExhibition) (publicExhibition, bool) {
 		"지도표시":     "아니오",
 	}
 
-	return publicExhibition{
+	exhibition := publicExhibition{
 		Slug:         kcisaEventSlug(event),
 		Title:        title,
 		BodyMarkdown: renderExhibitionTemplate(values),
@@ -553,7 +553,9 @@ func convertKCISAEvent(event kcisaExhibition) (publicExhibition, bool) {
 		Latitude:     0,
 		Longitude:    0,
 		ImageURL:     safeHTTPURL(event.ImageObject),
-	}, true
+	}
+	enrichExhibitionLocation(&exhibition)
+	return exhibition, true
 }
 
 func cleanKCISAText(value string) string {

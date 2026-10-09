@@ -159,6 +159,10 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		pool.Close()
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
+	if err := server.backfillExhibitionLocations(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("backfill exhibition locations: %w", err)
+	}
 	server.router = server.routes()
 	return server, nil
 }
@@ -244,7 +248,7 @@ func (s *Server) listMapPosts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "지도 게시글을 불러오지 못했습니다")
 		return
 	}
-	posts = currentMapExhibitions(posts, time.Now(), publicExhibitionDisplayLimit)
+	posts = publicMapExhibitions(posts, time.Now(), publicExhibitionDisplayLimit)
 	writeJSON(w, http.StatusOK, searchResponse{Items: posts, Total: len(posts)})
 }
 

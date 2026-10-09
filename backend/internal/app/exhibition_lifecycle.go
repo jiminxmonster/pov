@@ -117,11 +117,21 @@ func currentMapExhibitions(posts []Post, now time.Time, limit int) []Post {
 	})
 }
 
+// Browsing shows the same exhibitions as the public index, including recently
+// ended records. AI recommendations still use currentMapExhibitions.
+func publicMapExhibitions(posts []Post, now time.Time, limit int) []Post {
+	return filterExhibitions(publicIndexExhibitions(posts, now, len(posts)), limit, hasMappableLocation)
+}
+
+func validMapCoordinates(latitude, longitude float64) bool {
+	return latitude >= -85 && latitude <= 85 && longitude >= -180 && longitude <= 180 && (latitude != 0 || longitude != 0)
+}
+
 func hasMappableLocation(post Post) bool {
 	if strings.EqualFold(strings.TrimSpace(post.Metadata["지도표시"]), "아니오") {
 		return false
 	}
-	return post.Latitude >= 33 && post.Latitude <= 39 && post.Longitude >= 124 && post.Longitude <= 132
+	return validMapCoordinates(post.Latitude, post.Longitude)
 }
 
 func historicalKnowledgeExhibitions(posts []Post, now time.Time, limit int) []Post {

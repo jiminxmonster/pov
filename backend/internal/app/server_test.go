@@ -239,8 +239,8 @@ func TestDecodeAndConvertKCISAEvent(t *testing.T) {
 	if exhibition.Metadata["전시시작일"] != "2026-07-01" || exhibition.Metadata["전시종료일"] != "2026-09-20" {
 		t.Fatalf("unexpected KCISA dates: %#v", exhibition.Metadata)
 	}
-	if exhibition.Metadata["지도표시"] != "아니오" || exhibition.Latitude != 0 || exhibition.Longitude != 0 {
-		t.Fatal("KCISA data without coordinates must not create an inaccurate map marker")
+	if exhibition.Metadata["지도표시"] != "예" || exhibition.Latitude == 0 || exhibition.Longitude == 0 || exhibition.Metadata["좌표 출처"] == "" {
+		t.Fatal("known KCISA venues must receive verified coordinates and provenance")
 	}
 	if !strings.Contains(exhibition.BodyMarkdown, kcisaOpenDataSource) || !strings.Contains(exhibition.BodyMarkdown, "전시 소개 & 안내") {
 		t.Fatalf("KCISA source or description is missing: %q", exhibition.BodyMarkdown)

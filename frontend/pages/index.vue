@@ -23,13 +23,13 @@ const tapHistory = ref<number[]>([])
 const selectedFields = computed(() => selected.value ? parseExhibitionFields(selected.value.body_markdown) : [])
 const selectedExpired = computed(() => selected.value ? isExhibitionExpired(selected.value) : false)
 const mapPosts = computed(() => posts.value.filter(post => (
-  !isExhibitionExpired(post)
-  && post.metadata['지도표시'] !== '아니오'
-  && post.latitude >= 33
-  && post.latitude <= 39
-  && post.longitude >= 124
-  && post.longitude <= 132
+  post.metadata['지도표시'] !== '아니오'
+  && Number.isFinite(post.latitude) && Number.isFinite(post.longitude)
+  && post.latitude >= -85 && post.latitude <= 85
+  && post.longitude >= -180 && post.longitude <= 180
+  && (post.latitude !== 0 || post.longitude !== 0)
 )))
+const pendingLocationCount = computed(() => posts.value.length - mapPosts.value.length)
 
 useSeoMeta({
   title: '전지적관람시점',
@@ -192,6 +192,11 @@ onMounted(initializePage)
         <span>{{ interpretation }}</span>
       </p>
 
+      <p v-if="!loading" class="map-data-summary" role="status">
+        지도 {{ mapPosts.length.toLocaleString() }}개 · 전체 {{ posts.length.toLocaleString() }}개
+        <span v-if="pendingLocationCount"> · 위치 확인 중 {{ pendingLocationCount.toLocaleString() }}개</span>
+      </p>
+
       <div class="discovery-layout">
         <aside class="post-list" aria-label="지도에 표시된 공연·전시">
           <button
@@ -210,7 +215,7 @@ onMounted(initializePage)
             <img v-if="isExhibitionExpired(post)" :src="expiredStampUrl" alt="종료된 전시" class="expired-row-stamp is-compact">
           </button>
           <p v-if="loading" class="empty-copy"><LoaderCircle :size="18" class="spin" /> 전시를 불러오고 있습니다.</p>
-          <p v-else-if="mapPosts.length === 0" class="empty-copy">현재 관람할 수 있는 장면이 아직 없습니다.</p>
+          <p v-else-if="mapPosts.length === 0" class="empty-copy">위치가 확인된 전시가 아직 없습니다.</p>
         </aside>
 
         <div class="map-frame">

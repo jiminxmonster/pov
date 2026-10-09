@@ -22,6 +22,7 @@ const mapElement = ref<HTMLElement | null>(null)
 let map: LeafletMap | null = null
 let markers: Marker[] = []
 let markerClusterGroup: L.MarkerClusterGroup | null = null
+const markerPosts = new WeakMap<Marker, ExhibitionPost>()
 
 function renderMarkers() {
   const activeMap = map
@@ -41,6 +42,7 @@ function renderMarkers() {
     })
     const marker = L.marker([post.latitude, post.longitude], { icon })
       .on('click', () => emit('select', post))
+    markerPosts.set(marker, post)
     markers.push(marker)
   })
 
@@ -53,8 +55,48 @@ function fitPosts() {
     map.setView([props.posts[0].latitude, props.posts[0].longitude], 13)
     return
   }
-  const bounds = L.latLngBounds(props.posts.map(post => [post.latitude, post.longitude]))
+  const domesticPosts = props.posts.filter(post => post.latitude >= 33 && post.latitude <= 39 && post.longitude >= 124 && post.longitude <= 132)
+  const initialPosts = domesticPosts.length > 0 ? domesticPosts : props.posts
+  const bounds = L.latLngBounds(initialPosts.map(post => [post.latitude, post.longitude]))
   map.fitBounds(bounds, { padding: [80, 70], maxZoom: 12 })
+}
+
+function openCluster(cluster: L.MarkerCluster) {
+  if (!map) return
+  const children = cluster.getAllChildMarkers()
+  const bounds = cluster.getBounds()
+  const sameVenue = bounds.getNorthEast().distanceTo(bounds.getSouthWest()) < 30
+  if (!sameVenue && map.getZoom() < map.getMaxZoom()) {
+    cluster.zoomToBounds({ padding: [45, 45] })
+    return
+  }
+
+  const container = document.createElement('div')
+  container.className = 'pov-venue-popup'
+  const heading = document.createElement('strong')
+  heading.textContent = `이 위치의 전시 ${children.length.toLocaleString()}개`
+  container.append(heading)
+  const list = document.createElement('div')
+  list.className = 'pov-venue-popup-list'
+  for (const marker of children) {
+    const post = markerPosts.get(marker)
+    if (!post) continue
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'pov-venue-popup-item'
+    if (isExhibitionExpired(post)) button.classList.add('is-expired')
+    button.textContent = post.title
+    button.addEventListener('click', () => {
+      map?.closePopup()
+      emit('select', post)
+    })
+    list.append(button)
+  }
+  container.append(list)
+  L.DomEvent.disableClickPropagation(container)
+  L.DomEvent.disableScrollPropagation(container)
+  L.popup({ maxWidth: 320, className: 'pov-venue-popup-shell' })
+    .setLatLng(cluster.getLatLng()).setContent(container).openOn(map)
 }
 
 function escapeHtml(value: string) {
@@ -80,13 +122,12 @@ function initializeMap() {
     // 넓게 볼 때는 가까운 전시를 한 숫자로 정리하고, 확대할수록
     // 클러스터 반경을 줄여 작은 묶음과 개별 핀이 차례로 드러나게 한다.
     maxClusterRadius: zoom => Math.max(18, 84 - Math.max(0, zoom - 9) * 12),
-    disableClusteringAtZoom: 17,
     animate: true,
     animateAddingMarkers: true,
     showCoverageOnHover: false,
-    spiderfyOnMaxZoom: true,
+    spiderfyOnMaxZoom: false,
     spiderfyDistanceMultiplier: 2.4,
-    zoomToBoundsOnClick: true,
+    zoomToBoundsOnClick: false,
     removeOutsideVisibleBounds: true,
     chunkedLoading: true,
     iconCreateFunction: cluster => L.divIcon({
@@ -96,6 +137,9 @@ function initializeMap() {
       iconAnchor: [24, 24],
     }),
   }).addTo(map)
+  markerClusterGroup.on('clusterclick', (event: L.LeafletEvent) => {
+    openCluster((event as L.LeafletEvent & { layer: L.MarkerCluster }).layer)
+  })
   map.on('moveend', () => {
     if (!map) return
     const bounds = map.getBounds()
