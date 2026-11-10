@@ -14,7 +14,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  select: [post: ExhibitionPost]
+  resultsSelected: [ids: string[] | null]
   boundsChanged: [bbox: string]
 }>()
 
@@ -22,7 +22,7 @@ const mapElement = ref<HTMLElement | null>(null)
 let map: LeafletMap | null = null
 let markers: Marker[] = []
 let markerClusterGroup: L.MarkerClusterGroup | null = null
-const markerPosts = new WeakMap<Marker, ExhibitionPost>()
+const markerPostIds = new WeakMap<Marker, string>()
 
 function renderMarkers() {
   const activeMap = map
@@ -41,8 +41,8 @@ function renderMarkers() {
       iconAnchor: [75, 108],
     })
     const marker = L.marker([post.latitude, post.longitude], { icon })
-      .on('click', () => emit('select', post))
-    markerPosts.set(marker, post)
+      .on('click', () => emit('resultsSelected', [post.id]))
+    markerPostIds.set(marker, post.id)
     markers.push(marker)
   })
 
@@ -61,42 +61,19 @@ function fitPosts() {
   map.fitBounds(bounds, { padding: [80, 70], maxZoom: 12 })
 }
 
-function openCluster(cluster: L.MarkerCluster) {
+function selectCluster(cluster: L.MarkerCluster) {
   if (!map) return
-  const children = cluster.getAllChildMarkers()
+  const ids = cluster.getAllChildMarkers()
+    .map(marker => markerPostIds.get(marker))
+    .filter((id): id is string => id !== undefined)
+  if (ids.length === 0) return
+  emit('resultsSelected', ids)
+
   const bounds = cluster.getBounds()
   const sameVenue = bounds.getNorthEast().distanceTo(bounds.getSouthWest()) < 30
   if (!sameVenue && map.getZoom() < map.getMaxZoom()) {
     cluster.zoomToBounds({ padding: [45, 45] })
-    return
   }
-
-  const container = document.createElement('div')
-  container.className = 'pov-venue-popup'
-  const heading = document.createElement('strong')
-  heading.textContent = `이 위치의 전시 ${children.length.toLocaleString()}개`
-  container.append(heading)
-  const list = document.createElement('div')
-  list.className = 'pov-venue-popup-list'
-  for (const marker of children) {
-    const post = markerPosts.get(marker)
-    if (!post) continue
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.className = 'pov-venue-popup-item'
-    if (isExhibitionExpired(post)) button.classList.add('is-expired')
-    button.textContent = post.title
-    button.addEventListener('click', () => {
-      map?.closePopup()
-      emit('select', post)
-    })
-    list.append(button)
-  }
-  container.append(list)
-  L.DomEvent.disableClickPropagation(container)
-  L.DomEvent.disableScrollPropagation(container)
-  L.popup({ maxWidth: 320, className: 'pov-venue-popup-shell' })
-    .setLatLng(cluster.getLatLng()).setContent(container).openOn(map)
 }
 
 function escapeHtml(value: string) {
@@ -138,8 +115,9 @@ function initializeMap() {
     }),
   }).addTo(map)
   markerClusterGroup.on('clusterclick', (event: L.LeafletEvent) => {
-    openCluster((event as L.LeafletEvent & { layer: L.MarkerCluster }).layer)
+    selectCluster((event as L.LeafletEvent & { layer: L.MarkerCluster }).layer)
   })
+  map.on('click', () => emit('resultsSelected', null))
   map.on('moveend', () => {
     if (!map) return
     const bounds = map.getBounds()

@@ -29,6 +29,8 @@ let mobileMedia: MediaQueryList | undefined
 const mapSection = ref<HTMLElement | null>(null)
 const listSection = ref<HTMLElement | null>(null)
 const mapLayout = ref<HTMLElement | null>(null)
+const mapResults = ref<HTMLElement | null>(null)
+const mapSelection = ref<Set<string> | null>(null)
 const sheetStage = ref(0)
 const sheetDragHeight = ref<number>()
 const sheetLabels = ['접힘', '중간', '펼침']
@@ -47,6 +49,10 @@ const mapPosts = computed(() => posts.value.filter(post => (
 )))
 const pendingLocationCount = computed(() => posts.value.length - mapPosts.value.length)
 const mappedPostIds = computed(() => new Set(mapPosts.value.map(post => post.id)))
+const mapResultPosts = computed(() => {
+  const ids = mapSelection.value
+  return ids ? posts.value.filter(post => ids.has(post.id)) : posts.value
+})
 
 useSeoMeta({
   title: '전지적관람시점',
@@ -59,6 +65,7 @@ async function loadPosts() {
   try {
     const result = await $fetch<SearchResponse>(`${config.public.apiBase}/posts`)
     posts.value = result.items
+    mapSelection.value = null
     interpretation.value = ''
     aiPowered.value = false
   } finally {
@@ -68,6 +75,7 @@ async function loadPosts() {
 
 function applySearchResult(result: SearchResponse) {
   posts.value = result.items
+  mapSelection.value = null
   interpretation.value = result.interpretation || ''
   aiPowered.value = Boolean(result.ai_powered)
   selected.value = selected.value && posts.value.some(post => post.id === selected.value?.id) ? selected.value : null
@@ -214,6 +222,13 @@ function selectPost(post: ExhibitionPost) {
   selected.value = post
 }
 
+function showMapSelection(ids: string[] | null) {
+  if (!ids && !mapSelection.value) return
+  mapSelection.value = ids ? new Set(ids) : null
+  if (ids && mobileLayout.value && sheetStage.value === 0) sheetStage.value = 1
+  if (mapResults.value) mapResults.value.scrollTop = 0
+}
+
 onMounted(() => {
   mobileMedia = window.matchMedia('(max-width: 860px), (max-width: 1024px) and (pointer: coarse)')
   updateMobileLayout()
@@ -270,15 +285,19 @@ onBeforeUnmount(() => mobileMedia?.removeEventListener('change', updateMobileLay
         <span>{{ interpretation }}</span>
       </p>
 
-      <p v-if="!loading" class="map-data-summary" role="status">
-        지도 {{ mapPosts.length.toLocaleString() }}개 · 전체 {{ posts.length.toLocaleString() }}개
-        <span v-if="pendingLocationCount"> · 위치 확인 중 {{ pendingLocationCount.toLocaleString() }}개</span>
-      </p>
+      <div v-if="!loading" class="map-data-summary">
+        <span v-if="mapSelection" role="status">선택한 전시 {{ mapResultPosts.length.toLocaleString() }}개</span>
+        <span v-else role="status">
+          지도 {{ mapPosts.length.toLocaleString() }}개 · 전체 {{ posts.length.toLocaleString() }}개
+          <span v-if="pendingLocationCount"> · 위치 확인 중 {{ pendingLocationCount.toLocaleString() }}개</span>
+        </span>
+        <button v-if="mapSelection" class="map-results-reset" type="button" @click="showMapSelection(null)">전체 보기</button>
+      </div>
 
       <div ref="mapLayout" class="discovery-layout">
         <aside
           class="map-results-sheet"
-          aria-label="지도와 함께 보는 전체 공연·전시"
+          aria-label="지도 공연·전시 결과"
           :data-stage="sheetStage"
           :style="sheetDragHeight === undefined ? undefined : { '--sheet-drag-height': `${sheetDragHeight}px` }"
         >
@@ -298,11 +317,11 @@ onBeforeUnmount(() => mobileMedia?.removeEventListener('change', updateMobileLay
             @lostpointercapture="finishSheetDrag"
           >
             <span class="map-sheet-grip" aria-hidden="true" />
-            <span>전시 결과 <strong>{{ posts.length.toLocaleString() }}</strong></span>
+            <span>전시 결과 <strong>{{ mapResultPosts.length.toLocaleString() }}</strong></span>
           </button>
-          <div id="map-results" class="post-list" :inert="mobileLayout && sheetStage === 0">
+          <div id="map-results" ref="mapResults" class="post-list" :inert="mobileLayout && sheetStage === 0">
             <button
-              v-for="(post, index) in posts"
+              v-for="(post, index) in mapResultPosts"
               :key="post.id"
               type="button"
               class="post-list-item"
@@ -318,7 +337,7 @@ onBeforeUnmount(() => mobileMedia?.removeEventListener('change', updateMobileLay
               <img v-if="isExhibitionExpired(post)" :src="expiredStampUrl" alt="종료된 전시" class="expired-row-stamp is-compact">
             </button>
             <p v-if="loading" class="empty-copy"><LoaderCircle :size="18" class="spin" /> 전시를 불러오고 있습니다.</p>
-            <p v-else-if="posts.length === 0" class="empty-copy">전시가 아직 없습니다.</p>
+            <p v-else-if="mapResultPosts.length === 0" class="empty-copy">전시가 아직 없습니다.</p>
           </div>
         </aside>
 
@@ -326,7 +345,7 @@ onBeforeUnmount(() => mobileMedia?.removeEventListener('change', updateMobileLay
           <PovMap
             :posts="mapPosts"
             :selected-id="selected?.id"
-            @select="selectPost"
+            @results-selected="showMapSelection"
             @bounds-changed="currentBbox = $event"
           />
         </div>
