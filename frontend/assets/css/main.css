@@ -496,6 +496,22 @@ textarea:focus-visible {
   background: var(--canvas);
 }
 
+.map-results-sheet {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.map-results-sheet .post-list {
+  min-height: 0;
+  flex: 1;
+}
+
+.map-sheet-handle,
+.pov-mobile-nav {
+  display: none;
+}
+
 .post-list {
   overflow-y: auto;
   border-right: 1px solid var(--line);
@@ -2018,6 +2034,164 @@ textarea:focus-visible {
   .ai-dock {
     padding-right: 18px;
     padding-left: 18px;
+  }
+}
+
+@media (max-width: 860px), (max-width: 1024px) and (pointer: coarse) {
+  .pov-screens {
+    --nav-bottom: max(12px, env(safe-area-inset-bottom));
+    --nav-clearance: calc(64px + var(--nav-bottom));
+    display: flex;
+    height: 100dvh;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: auto;
+    scrollbar-width: none;
+  }
+
+  .pov-screens::-webkit-scrollbar {
+    display: none;
+  }
+
+  .pov-screens > section {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex: 0 0 100%;
+    margin: 0;
+    padding-bottom: var(--nav-clearance);
+    overflow: hidden auto;
+    overscroll-behavior-y: contain;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+
+  .pov-screens > .landing-room {
+    justify-content: safe center;
+    padding: max(20px, env(safe-area-inset-top)) 20px var(--nav-clearance);
+  }
+
+  .pov-screens .brand-mark-button {
+    flex-shrink: 0;
+  }
+
+  .pov-screens .search-line {
+    margin-top: clamp(24px, 9dvh, 80px);
+  }
+
+  .pov-screens .down-cue,
+  .pov-screens .section-down-cue {
+    display: none;
+  }
+
+  .pov-screens > .discovery {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+
+  .pov-screens .discovery-layout {
+    position: relative;
+    isolation: isolate;
+    display: block;
+    height: auto;
+    min-height: 160px;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .pov-screens .map-frame {
+    position: absolute;
+    z-index: 0;
+    inset: 0 0 48px;
+    height: auto;
+    min-height: 0;
+  }
+
+  .map-results-sheet {
+    --sheet-height: 48px;
+    position: absolute;
+    z-index: 1;
+    inset: auto 0 0;
+    height: var(--sheet-drag-height, var(--sheet-height));
+    overflow: hidden;
+    border-top: 1px solid var(--line);
+    border-radius: 20px 20px 0 0;
+    background: var(--paper);
+    box-shadow: 0 -4px 20px rgb(17 17 17 / 12%);
+    transition: height var(--motion-quick) ease;
+  }
+
+  .map-results-sheet[style] { transition: none; }
+  .map-results-sheet[data-stage='1'] { --sheet-height: 50%; }
+  .map-results-sheet[data-stage='2'] { --sheet-height: 100%; }
+
+  .map-results-sheet .post-list {
+    max-height: none;
+    border-right: 0;
+    overscroll-behavior-y: contain;
+  }
+
+  .map-sheet-handle {
+    display: grid;
+    flex: 0 0 47px;
+    justify-items: center;
+    align-content: center;
+    gap: 5px;
+    padding: 0 12px;
+    border: 0;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 700;
+    touch-action: none;
+    user-select: none;
+    cursor: grab;
+  }
+
+  .map-sheet-grip {
+    width: 32px;
+    height: 4px;
+    border-radius: 99px;
+    background: var(--line-strong);
+  }
+
+  .pov-mobile-nav {
+    position: fixed;
+    z-index: 900;
+    bottom: var(--nav-bottom);
+    left: 50%;
+    transform: translateX(-50%);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: min(360px, calc(100% - 32px));
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper);
+    box-shadow: 0 6px 24px rgb(17 17 17 / 15%);
+  }
+
+  .pov-mobile-nav button {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .pov-mobile-nav button[aria-current] {
+    background: var(--ink);
+    color: var(--paper);
   }
 }
 

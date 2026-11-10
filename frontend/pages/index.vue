@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowRight, LoaderCircle, MapPin, Plus, Search, X } from '@lucide/vue'
+import { ArrowDown, ArrowRight, House, List, LoaderCircle, MapPin, Plus, Search, X } from '@lucide/vue'
 import type { ExhibitionPost, SearchResponse } from '~/types/post'
 import { isExhibitionExpired, parseExhibitionContent, parseExhibitionFields } from '~/utils/exhibition'
 
@@ -16,8 +16,24 @@ const selected = ref<ExhibitionPost | null>(null)
 const loading = ref(false)
 const interpretation = ref('')
 const aiPowered = ref(false)
+const views = [
+  { id: 'main', label: '메인', icon: House },
+  { id: 'map', label: '지도', icon: MapPin },
+  { id: 'list', label: '목록', icon: List },
+] as const
+type View = typeof views[number]['id']
+const screens = ref<HTMLElement | null>(null)
+const activeView = ref<View>('main')
+const mobileLayout = ref(false)
+let mobileMedia: MediaQueryList | undefined
 const mapSection = ref<HTMLElement | null>(null)
 const listSection = ref<HTMLElement | null>(null)
+const mapLayout = ref<HTMLElement | null>(null)
+const sheetStage = ref(0)
+const sheetDragHeight = ref<number>()
+const sheetLabels = ['접힘', '중간', '펼침']
+let sheetGesture: { id: number; startY: number; startHeight: number; maxHeight: number } | undefined
+let sheetDragged = false
 const currentBbox = ref('')
 const tapHistory = ref<number[]>([])
 const selectedFields = computed(() => selected.value ? parseExhibitionFields(selected.value.body_markdown) : [])
@@ -64,16 +80,14 @@ function shouldOpenConversation(result: SearchResponse) {
 async function showSearchResult(result: SearchResponse, target: 'map' | 'list') {
   applySearchResult(result)
   await nextTick()
-  const section = target === 'map' ? mapSection : listSection
-  section.value?.scrollIntoView({ behavior: 'smooth' })
+  navigateTo(target)
 }
 
 async function search(target: 'map' | 'list' = 'map') {
   const text = query.value.trim()
   if (!text) {
     await loadPosts()
-    const section = target === 'map' ? mapSection : listSection
-    section.value?.scrollIntoView({ behavior: 'smooth' })
+    navigateTo(target)
     return
   }
 
@@ -95,7 +109,8 @@ async function search(target: 'map' | 'list' = 'map') {
 }
 
 async function initializePage() {
-  const view = route.query.view === 'list' ? 'list' : route.query.view === 'map' ? 'map' : ''
+  const requestedView = route.query.view || route.hash.slice(1)
+  const view = requestedView === 'list' || requestedView === 'map' ? requestedView : undefined
   const stored = sessionStorage.getItem(searchResultKey)
   if (stored) {
     sessionStorage.removeItem(searchResultKey)
@@ -110,12 +125,8 @@ async function initializePage() {
       // Ignore expired or malformed browser state and load the current index.
     }
   }
+  if (view) navigateTo(view, 'instant')
   await loadPosts()
-  if (view) {
-    await nextTick()
-    const section = view === 'map' ? mapSection : listSection
-    section.value?.scrollIntoView({ behavior: 'smooth' })
-  }
 }
 
 function handleLogoTap() {
@@ -127,8 +138,68 @@ function handleLogoTap() {
   }
 }
 
-function goToMain() {
-  if (import.meta.client) window.scrollTo({ top: 0, behavior: 'smooth' })
+function navigateTo(view: View, behavior: ScrollBehavior = 'smooth') {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) behavior = 'instant'
+  if (mobileLayout.value && screens.value) {
+    const index = views.findIndex(item => item.id === view)
+    screens.value.scrollTo({ left: index * screens.value.clientWidth, behavior })
+    if (behavior === 'instant') activeView.value = view
+  } else if (view === 'main') {
+    window.scrollTo({ top: 0, behavior })
+  } else {
+    const section = view === 'map' ? mapSection : listSection
+    section.value?.scrollIntoView({ behavior })
+  }
+}
+
+function syncActiveView() {
+  const track = screens.value
+  if (!mobileLayout.value || !track?.clientWidth) return
+  const index = Math.round(track.scrollLeft / track.clientWidth)
+  activeView.value = views[index]?.id ?? 'main'
+}
+
+function updateMobileLayout() {
+  mobileLayout.value = Boolean(mobileMedia?.matches)
+  if (mobileLayout.value) navigateTo(activeView.value, 'instant')
+}
+
+function stepSheet(direction: number) {
+  sheetStage.value = Math.min(2, Math.max(0, sheetStage.value + direction))
+}
+
+function toggleSheet(event: MouseEvent) {
+  if (event.detail && sheetDragged) return
+  sheetStage.value = (sheetStage.value + 1) % sheetLabels.length
+}
+
+function startSheetDrag(event: PointerEvent) {
+  const maxHeight = mapLayout.value?.clientHeight
+  if (!event.isPrimary || event.button !== 0 || !maxHeight) return
+  const handle = event.currentTarget as HTMLButtonElement
+  const startHeight = handle.parentElement?.getBoundingClientRect().height ?? 48
+  sheetDragged = false
+  sheetGesture = { id: event.pointerId, startY: event.clientY, startHeight, maxHeight }
+  handle.setPointerCapture(event.pointerId)
+}
+
+function moveSheetDrag(event: PointerEvent) {
+  if (sheetGesture?.id !== event.pointerId) return
+  const distance = sheetGesture.startY - event.clientY
+  if (Math.abs(distance) < 8 && !sheetDragged) return
+  sheetDragged = true
+  sheetDragHeight.value = Math.max(48, Math.min(sheetGesture.maxHeight, sheetGesture.startHeight + distance))
+}
+
+function finishSheetDrag(event: PointerEvent) {
+  if (sheetGesture?.id !== event.pointerId) return
+  const distance = sheetGesture.startY - event.clientY
+  if (event.type === 'pointerup' && Math.abs(distance) >= 24) {
+    sheetDragged = true
+    stepSheet(Math.sign(distance))
+  }
+  sheetGesture = undefined
+  sheetDragHeight.value = undefined
 }
 
 function postField(post: ExhibitionPost, label: string) {
@@ -143,12 +214,18 @@ function selectPost(post: ExhibitionPost) {
   selected.value = post
 }
 
-onMounted(initializePage)
+onMounted(() => {
+  mobileMedia = window.matchMedia('(max-width: 860px), (max-width: 1024px) and (pointer: coarse)')
+  updateMobileLayout()
+  mobileMedia.addEventListener('change', updateMobileLayout)
+  return initializePage()
+})
+onBeforeUnmount(() => mobileMedia?.removeEventListener('change', updateMobileLayout))
 </script>
 
 <template>
-  <main>
-    <section class="landing-room" aria-labelledby="brand-title">
+  <main ref="screens" class="pov-screens" @scroll.passive="syncActiveView">
+    <section id="main" class="landing-room" aria-labelledby="brand-title" :inert="mobileLayout && activeView !== 'main'">
       <button class="brand-mark-button" type="button" aria-label="POV" @click="handleLogoTap">
         <img class="brand-mark" :src="logoUrl" alt="POV 로고">
       </button>
@@ -171,14 +248,14 @@ onMounted(initializePage)
         </button>
       </form>
 
-      <button class="down-cue" type="button" aria-label="지도로 이동" @click="mapSection?.scrollIntoView({ behavior: 'smooth' })">
+      <button class="down-cue" type="button" aria-label="지도로 이동" @click="navigateTo('map')">
         <ArrowDown :size="24" />
       </button>
     </section>
 
-    <section id="map" ref="mapSection" class="discovery" aria-label="지도 위의 장면들">
+    <section id="map" ref="mapSection" class="discovery" aria-label="지도 위의 장면들" :inert="mobileLayout && activeView !== 'map'">
       <header class="map-toolbar">
-        <button class="index-emblem" type="button" aria-label="메인 화면으로 이동" @click="goToMain">
+        <button class="index-emblem" type="button" aria-label="메인 화면으로 이동" @click="navigateTo('main')">
           <img :src="logoUrl" alt="POV 엠블럼">
         </button>
 
@@ -198,26 +275,51 @@ onMounted(initializePage)
         <span v-if="pendingLocationCount"> · 위치 확인 중 {{ pendingLocationCount.toLocaleString() }}개</span>
       </p>
 
-      <div class="discovery-layout">
-        <aside class="post-list" aria-label="지도와 함께 보는 전체 공연·전시">
+      <div ref="mapLayout" class="discovery-layout">
+        <aside
+          class="map-results-sheet"
+          aria-label="지도와 함께 보는 전체 공연·전시"
+          :data-stage="sheetStage"
+          :style="sheetDragHeight === undefined ? undefined : { '--sheet-drag-height': `${sheetDragHeight}px` }"
+        >
           <button
-            v-for="(post, index) in posts"
-            :key="post.id"
+            class="map-sheet-handle"
             type="button"
-            class="post-list-item"
-            :class="{ 'is-active': selected?.id === post.id, 'is-expired': isExhibitionExpired(post) }"
-            @click="selectPost(post)"
+            aria-controls="map-results"
+            :aria-expanded="sheetStage !== 0"
+            :aria-label="`지도 결과 ${sheetLabels[sheetStage]}. 위아래로 밀어 높이 조절`"
+            @click="toggleSheet"
+            @keydown.up.prevent="stepSheet(1)"
+            @keydown.down.prevent="stepSheet(-1)"
+            @pointerdown="startSheetDrag"
+            @pointermove="moveSheetDrag"
+            @pointerup="finishSheetDrag"
+            @pointercancel="finishSheetDrag"
+            @lostpointercapture="finishSheetDrag"
           >
-            <span class="post-list-index">{{ String(index + 1).padStart(2, '0') }}</span>
-            <span class="post-list-copy">
-              <strong>{{ post.title }}</strong>
-              <small><MapPin :size="13" /> {{ post.address || '장소 확인 중' }}</small>
-              <small v-if="!mappedPostIds.has(post.id)">위치 확인 중</small>
-            </span>
-            <img v-if="isExhibitionExpired(post)" :src="expiredStampUrl" alt="종료된 전시" class="expired-row-stamp is-compact">
+            <span class="map-sheet-grip" aria-hidden="true" />
+            <span>전시 결과 <strong>{{ posts.length.toLocaleString() }}</strong></span>
           </button>
-          <p v-if="loading" class="empty-copy"><LoaderCircle :size="18" class="spin" /> 전시를 불러오고 있습니다.</p>
-          <p v-else-if="posts.length === 0" class="empty-copy">전시가 아직 없습니다.</p>
+          <div id="map-results" class="post-list" :inert="mobileLayout && sheetStage === 0">
+            <button
+              v-for="(post, index) in posts"
+              :key="post.id"
+              type="button"
+              class="post-list-item"
+              :class="{ 'is-active': selected?.id === post.id, 'is-expired': isExhibitionExpired(post) }"
+              @click="selectPost(post)"
+            >
+              <span class="post-list-index">{{ String(index + 1).padStart(2, '0') }}</span>
+              <span class="post-list-copy">
+                <strong>{{ post.title }}</strong>
+                <small><MapPin :size="13" /> {{ post.address || '장소 확인 중' }}</small>
+                <small v-if="!mappedPostIds.has(post.id)">위치 확인 중</small>
+              </span>
+              <img v-if="isExhibitionExpired(post)" :src="expiredStampUrl" alt="종료된 전시" class="expired-row-stamp is-compact">
+            </button>
+            <p v-if="loading" class="empty-copy"><LoaderCircle :size="18" class="spin" /> 전시를 불러오고 있습니다.</p>
+            <p v-else-if="posts.length === 0" class="empty-copy">전시가 아직 없습니다.</p>
+          </div>
         </aside>
 
         <div class="map-frame">
@@ -230,14 +332,14 @@ onMounted(initializePage)
         </div>
       </div>
 
-      <button class="section-down-cue" type="button" aria-label="전시 목록으로 이동" @click="listSection?.scrollIntoView({ behavior: 'smooth' })">
+      <button class="section-down-cue" type="button" aria-label="전시 목록으로 이동" @click="navigateTo('list')">
         <ArrowDown :size="22" />
       </button>
     </section>
 
-    <section id="list" ref="listSection" class="exhibition-index" aria-labelledby="exhibition-index-title">
+    <section id="list" ref="listSection" class="exhibition-index" aria-labelledby="exhibition-index-title" :inert="mobileLayout && activeView !== 'list'">
       <header class="index-toolbar">
-        <button class="index-emblem" type="button" aria-label="메인 화면으로 이동" @click="goToMain">
+        <button class="index-emblem" type="button" aria-label="메인 화면으로 이동" @click="navigateTo('main')">
           <img :src="logoUrl" alt="POV 엠블럼">
         </button>
 
@@ -284,6 +386,20 @@ onMounted(initializePage)
         <p v-else-if="posts.length === 0" class="empty-copy">조건에 맞는 전시가 아직 없습니다.</p>
       </div>
     </section>
+
+    <nav class="pov-mobile-nav" aria-label="POV 화면 전환" :inert="Boolean(selected)">
+      <button
+        v-for="view in views"
+        :key="view.id"
+        type="button"
+        :aria-current="activeView === view.id ? 'page' : undefined"
+        :aria-controls="view.id"
+        @click="navigateTo(view.id)"
+      >
+        <component :is="view.icon" :size="17" aria-hidden="true" />
+        {{ view.label }}
+      </button>
+    </nav>
 
     <Transition name="fade">
       <div v-if="selected" class="detail-backdrop" @click.self="selected = null">
