@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowRight, House, List, LoaderCircle, MapPin, Plus, Search, X } from '@lucide/vue'
+import { ArrowDown, ArrowRight, House, List, LoaderCircle, LocateFixed, MapPin, Plus, Search, X } from '@lucide/vue'
 import type { ExhibitionPost, SearchResponse } from '~/types/post'
 import { isExhibitionExpired, parseExhibitionContent, parseExhibitionFields } from '~/utils/exhibition'
+import { distanceKm, exhibitionMapGenre, mapGenres, type MapGenre, type MapPoint } from '~/utils/exhibitionMap'
 
 const config = useRuntimeConfig()
 const router = useRouter()
@@ -31,6 +32,13 @@ const listSection = ref<HTMLElement | null>(null)
 const mapLayout = ref<HTMLElement | null>(null)
 const mapResults = ref<HTMLElement | null>(null)
 const mapSelection = ref<Set<string> | null>(null)
+const mapGenre = ref<MapGenre>('전체')
+const unlimitedRadius = 11
+const radiusValue = ref(unlimitedRadius)
+const mapCenter = ref<MapPoint>({ latitude: 37.5665, longitude: 126.978 })
+const userLocation = ref<MapPoint>()
+const locating = ref(false)
+const locationError = ref('')
 const sheetStage = ref(0)
 const sheetDragHeight = ref<number>()
 const sheetLabels = ['접힘', '중간', '펼침']
@@ -49,9 +57,26 @@ const mapPosts = computed(() => posts.value.filter(post => (
 )))
 const pendingLocationCount = computed(() => posts.value.length - mapPosts.value.length)
 const mappedPostIds = computed(() => new Set(mapPosts.value.map(post => post.id)))
+const radius = computed(() => radiusValue.value === unlimitedRadius ? null : {
+  km: radiusValue.value,
+  center: userLocation.value ?? mapCenter.value,
+})
+const radiusLabel = computed(() => radius.value ? `${radius.value.km}km` : '무한')
+const genrePosts = computed(() => {
+  const genre = mapGenre.value
+  return genre === '전체' ? posts.value : posts.value.filter(post => exhibitionMapGenre(post) === genre)
+})
+const filteredMapResults = computed(() => {
+  const limit = radius.value
+  return limit ? genrePosts.value.filter(post => mappedPostIds.value.has(post.id) && distanceKm(limit.center, post) <= limit.km) : genrePosts.value
+})
+const visibleMapPosts = computed(() => radius.value || mapGenre.value !== '전체'
+  ? filteredMapResults.value.filter(post => mappedPostIds.value.has(post.id))
+  : mapPosts.value)
 const mapResultPosts = computed(() => {
   const ids = mapSelection.value
-  return ids ? posts.value.filter(post => ids.has(post.id)) : posts.value
+  const matches = filteredMapResults.value
+  return ids ? matches.filter(post => ids.has(post.id)) : matches
 })
 
 useSeoMeta({
@@ -229,6 +254,30 @@ function showMapSelection(ids: string[] | null) {
   if (mapResults.value) mapResults.value.scrollTop = 0
 }
 
+function setMapGenre(genre: MapGenre) {
+  mapGenre.value = genre
+  showMapSelection(null)
+}
+
+function locateUser() {
+  locationError.value = ''
+  if (!navigator.geolocation) {
+    locationError.value = '이 브라우저에서는 내 위치를 확인할 수 없습니다.'
+    return
+  }
+  locating.value = true
+  navigator.geolocation.getCurrentPosition(({ coords }) => {
+    userLocation.value = { latitude: coords.latitude, longitude: coords.longitude }
+    locating.value = false
+    showMapSelection(null)
+  }, () => {
+    locating.value = false
+    locationError.value = '내 위치를 가져오지 못했습니다. 브라우저 위치 권한을 확인해 주세요.'
+  }, { timeout: 10000, maximumAge: 60000 })
+}
+
+watch(radiusValue, () => showMapSelection(null))
+
 onMounted(() => {
   mobileMedia = window.matchMedia('(max-width: 860px), (max-width: 1024px) and (pointer: coarse)')
   updateMobileLayout()
@@ -280,6 +329,16 @@ onBeforeUnmount(() => mobileMedia?.removeEventListener('change', updateMobileLay
         </form>
       </header>
 
+      <div class="map-genres" role="group" aria-label="전시 장르">
+        <button
+          v-for="genre in mapGenres"
+          :key="genre"
+          type="button"
+          :aria-pressed="mapGenre === genre"
+          @click="setMapGenre(genre)"
+        >{{ genre }}</button>
+      </div>
+
       <p v-if="interpretation" class="map-interpretation" :class="{ 'is-ai': aiPowered }">
         <strong v-if="aiPowered">POV AI</strong>
         <span>{{ interpretation }}</span>
@@ -287,11 +346,12 @@ onBeforeUnmount(() => mobileMedia?.removeEventListener('change', updateMobileLay
 
       <div v-if="!loading" class="map-data-summary">
         <span v-if="mapSelection" role="status">선택한 전시 {{ mapResultPosts.length.toLocaleString() }}개</span>
+        <span v-else-if="radius || mapGenre !== '전체'" role="status">조건에 맞는 전시 {{ mapResultPosts.length.toLocaleString() }}개</span>
         <span v-else role="status">
           지도 {{ mapPosts.length.toLocaleString() }}개 · 전체 {{ posts.length.toLocaleString() }}개
           <span v-if="pendingLocationCount"> · 위치 확인 중 {{ pendingLocationCount.toLocaleString() }}개</span>
         </span>
-        <button v-if="mapSelection" class="map-results-reset" type="button" @click="showMapSelection(null)">전체 보기</button>
+        <button v-if="mapSelection" class="map-results-reset" type="button" @click="showMapSelection(null)">{{ radius || mapGenre !== '전체' ? '선택 해제' : '전체 보기' }}</button>
       </div>
 
       <div ref="mapLayout" class="discovery-layout">
@@ -343,11 +403,25 @@ onBeforeUnmount(() => mobileMedia?.removeEventListener('change', updateMobileLay
 
         <div class="map-frame">
           <PovMap
-            :posts="mapPosts"
+            :posts="visibleMapPosts"
+            :extent-posts="mapPosts"
+            :radius="radius"
+            :user-location="userLocation"
             :selected-id="selected?.id"
             @results-selected="showMapSelection"
             @bounds-changed="currentBbox = $event"
+            @center-changed="mapCenter = $event"
           />
+          <div class="map-radius-controls" aria-label="지도 반경 설정">
+            <label for="map-radius">반경 <strong>{{ radiusLabel }}</strong></label>
+            <input id="map-radius" v-model.number="radiusValue" type="range" min="1" :max="unlimitedRadius" step="1" :aria-valuetext="radiusLabel">
+            <div class="map-radius-scale" aria-hidden="true"><span>1km</span><span>10km · 무한</span></div>
+            <button type="button" :disabled="locating" @click="locateUser">
+              <LocateFixed :size="16" aria-hidden="true" />
+              {{ locating ? '위치 확인 중' : userLocation ? '내 위치로 이동' : '내 위치' }}
+            </button>
+            <p v-if="locationError" role="status">{{ locationError }}</p>
+          </div>
         </div>
       </div>
 
